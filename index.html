@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kingdom Hall Cleaning Tracker</title>
+<script>
+  // Applied before first paint so there's no flash of the wrong theme.
+  (function () {
+    try {
+      var t = localStorage.getItem("khct.theme");
+      if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+    } catch (e) {}
+  })();
+</script>
+<meta name="description" content="New Legon Twi Congregation — Field Service Group cleaning rotation, live in Ghana time.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧹</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<span class="stripe" aria-hidden="true"></span>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+        <!-- broom -->
+        <line x1="9" y1="5" x2="19" y2="25" stroke="var(--text-dim)" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M14,23 L24,23 L28,41 L10,41 Z" fill="var(--accent)"/>
+        <path d="M17,41 L18,28 M21,41 L21,25 M24,41 L23,28" stroke="var(--bg)" stroke-width="1" opacity="0.35" stroke-linecap="round"/>
+        <!-- mop -->
+        <line x1="39" y1="5" x2="29" y2="25" stroke="var(--text-dim)" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M29,25 Q23,33 21,43" stroke="var(--green)" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+        <path d="M29,25 Q28,35 27,44" stroke="var(--green)" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+        <path d="M29,25 Q33,34 34,43" stroke="var(--green)" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+        <!-- duster -->
+        <line x1="24" y1="39" x2="24" y2="30" stroke="var(--text-dim)" stroke-width="2" stroke-linecap="round"/>
+        <path d="M17,27 Q18,19 24,19 Q30,19 31,27 Q30,32 24,31 Q18,32 17,27 Z" fill="var(--red)" opacity="0.85"/>
+      </svg>
+    </div>
+    <div>
+      <h1 id="congName">New Legon Twi Congregation</h1>
+      <p class="subtitle">Kingdom Hall Cleaning Tracker</p>
+    </div>
+  </div>
+  <div class="clock" id="liveClock">
+    <span class="clock-time" id="clockTime">--:--:--</span>
+    <span class="clock-date" id="clockDate">Loading…</span>
+    <span class="tz-badge">Africa/Accra</span>
+  </div>
+  <button type="button" class="icon-btn" id="themeToggle" aria-label="Toggle light/dark theme">🌙</button>
+  <button type="button" class="icon-btn" id="settingsBtn" aria-label="Settings">⚙</button>
+</header>
+
+<main>
+
+  <section class="hero-top">
+    <div class="hero-photo-frame">
+      <img class="hero-photo-img day" src="img/kingdom-hall-day.jpg" alt="New Legon Twi Kingdom Hall in daylight" loading="lazy">
+      <img class="hero-photo-img night" src="img/kingdom-hall-night.jpg" alt="New Legon Twi Kingdom Hall at night" loading="lazy">
+    </div>
+    <div class="hero-number-panel">
+      <span class="eyebrow">This Week's Assignment</span>
+      <div class="hero-num-big">
+        <span class="num-word">Group</span>
+        <span class="num-digit" id="heroNumDigit">–</span>
+      </div>
+      <p class="hero-leader" id="heroLeader">Led by —</p>
+    </div>
+  </section>
+  <p class="hero-photo-caption">New Legon Twi Kingdom Hall</p>
+
+  <section class="hero-grid">
+    <div class="card hero-card" id="currentCard">
+      <span class="eyebrow">Status</span>
+      <p class="hero-status-note" id="heroStatusNote">Currently on duty</p>
+
+      <div class="phase-badges">
+        <div class="phase-pill" id="weekendPill"></div>
+        <div class="phase-pill" id="midweekPill"></div>
+      </div>
+
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+
+      <button type="button" class="link-btn" id="toggleRosterBtn">View this week's team ▾</button>
+      <ul class="roster-list" id="currentRoster" hidden></ul>
+    </div>
+
+    <div class="card next-card" id="nextCard">
+      <span class="eyebrow">Countdown</span>
+      <p class="countdown-label" id="countdownLabel">Next event</p>
+      <div class="countdown-timer">
+        <div class="tunit"><span id="cdDays">00</span><small>days</small></div>
+        <div class="tunit"><span id="cdHours">00</span><small>hrs</small></div>
+        <div class="tunit"><span id="cdMins">00</span><small>min</small></div>
+        <div class="tunit"><span id="cdSecs">00</span><small>sec</small></div>
+      </div>
+
+      <div class="next-info">
+        <span class="next-badge" id="nextGroupType">Weekend</span>
+        <h3 id="nextGroupName">Group –</h3>
+        <p id="nextGroupDate">—</p>
+      </div>
+
+      <div class="cycle-dots" id="cycleDots"></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>Upcoming Schedule</h2>
+      <p>Auto-calculated from today's Ghana date — no manual entry needed</p>
+    </div>
+    <div class="timeline" id="timeline"></div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>Field Service Groups</h2>
+      <p>Tap a card to see the full team</p>
+    </div>
+    <div class="group-grid" id="groupGrid"></div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>Cleaning History</h2>
+      <div class="filter-tabs" id="historyFilters">
+        <button type="button" class="tab active" data-filter="all">All</button>
+        <button type="button" class="tab" data-filter="done">Completed</button>
+        <button type="button" class="tab" data-filter="missed">Missed</button>
+        <button type="button" class="tab" data-filter="pending">Unconfirmed</button>
+      </div>
+    </div>
+    <div class="history-list" id="historyList"></div>
+  </section>
+
+</main>
+
+<footer>
+  <p>Built for <span id="congName2">New Legon Twi Congregation</span> · rotation runs on Africa/Accra time · © <span id="year"></span></p>
+</footer>
+
+<!-- Settings modal -->
+<div class="modal-overlay" id="settingsOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="modal-head">
+      <h3 id="settingsTitle">Settings</h3>
+      <button type="button" class="icon-btn" id="closeSettings" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+
+      <div class="settings-block">
+        <h4>Theme</h4>
+        <p class="hint">Auto follows the cleaning schedule itself — dark for the midweek stretch, light for the weekend stretch. Or lock it to one.</p>
+        <div class="theme-choice" id="themeChoice">
+          <button type="button" class="theme-opt" data-theme-choice="auto">Auto (schedule)</button>
+          <button type="button" class="theme-opt" data-theme-choice="light">Light</button>
+          <button type="button" class="theme-opt" data-theme-choice="dark">Dark</button>
+        </div>
+      </div>
+
+      <div class="settings-block">
+        <h4>Midweek Meeting (default)</h4>
+        <p class="hint">The day &amp; time cleaning normally follows for the midweek meeting.</p>
+        <div class="field-row">
+          <label>Day
+            <select id="defaultMidweekDay"></select>
+          </label>
+          <label>Time
+            <input type="time" id="defaultMidweekTime">
+          </label>
+        </div>
+      </div>
+
+      <div class="settings-block">
+        <h4>Weekend Meeting (default)</h4>
+        <div class="field-row">
+          <label>Time
+            <input type="time" id="defaultWeekendTime">
+          </label>
+        </div>
+      </div>
+
+      <div class="settings-block">
+        <h4>One-off Midweek Changes</h4>
+        <p class="hint">For the rare week the midweek meeting moves to a different day or time.</p>
+        <div class="field-row wrap">
+          <label>Week (Sunday)
+            <select id="overrideWeekSelect"></select>
+          </label>
+          <label>New day
+            <select id="overrideDay"></select>
+          </label>
+          <label>New time
+            <input type="time" id="overrideTime">
+          </label>
+          <button type="button" class="btn" id="addOverrideBtn">Add</button>
+        </div>
+        <ul class="override-list" id="overrideList"></ul>
+      </div>
+
+      <div class="settings-block">
+        <h4>Data</h4>
+        <p class="hint">History notes and any changes above are stored only in this browser.</p>
+        <button type="button" class="btn btn-danger" id="resetDataBtn">Reset all local data</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Group roster modal -->
+<div class="modal-overlay" id="groupOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="groupModalTitle">
+    <div class="modal-head">
+      <h3 id="groupModalTitle">Group –</h3>
+      <button type="button" class="icon-btn" id="closeGroupModal" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <ul class="roster-list" id="groupModalRoster"></ul>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="js/data.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
