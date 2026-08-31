@@ -37,20 +37,6 @@ function getOverrides() {
 function saveOverrides(map) {
   writeStore(STORAGE_KEYS.overrides, map);
 }
-function getHistory() {
-  return readStore(STORAGE_KEYS.history, {});
-}
-function saveHistoryEntry(eventId, entry) {
-  const h = getHistory();
-  if (entry === null) {
-    delete h[eventId];
-  } else {
-    h[eventId] = entry;
-  }
-  writeStore(STORAGE_KEYS.history, h);
-  return h;
-}
-
 // ---------------------------------------------------------------------
 // Ghana time + rotation math
 // ---------------------------------------------------------------------
@@ -140,20 +126,18 @@ function pad2(n) {
 // ---------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------
-let allEvents = [];      // wide window, recomputed on any data change
+let allEvents = [];      // upcoming events window, recomputed on any data change
 let currentBlockIdx = 0;
 let currentGroup = 1;
 let nextEvent = null;
-let expandedHistoryId = null;
 
-const REFRESH_WINDOW_BEFORE = 14; // weeks of history kept in memory
-const REFRESH_WINDOW_AFTER = 14;
+const REFRESH_WINDOW_AFTER = 14; // weeks of upcoming events kept in memory (only future events are ever read)
 
 function recomputeSchedule() {
   const now = nowMs();
   currentBlockIdx = weekIndexForMs(now);
   currentGroup = groupForWeekIndex(currentBlockIdx);
-  allEvents = getEventsRange(currentBlockIdx - REFRESH_WINDOW_BEFORE, currentBlockIdx + REFRESH_WINDOW_AFTER);
+  allEvents = getEventsRange(currentBlockIdx, currentBlockIdx + REFRESH_WINDOW_AFTER);
   nextEvent = allEvents.find(e => e.datetime > now) || null;
   // keep "Auto" theme in step as the week crosses from weekend -> midweek -> weekend
   if (typeof applyThemeNow === "function") { applyThemeNow(); updateThemeUI(); }
@@ -476,79 +460,6 @@ function openGroupModal(g) {
 }
 
 // ---------------------------------------------------------------------
-// Rendering — history
-// ---------------------------------------------------------------------
-function currentHistoryFilter() {
-  const active = document.querySelector("#historyFilters .tab.active");
-  return active ? active.dataset.filter : "all";
-}
-
-function renderHistory() {
-  const now = nowMs();
-  const history = getHistory();
-  const filter = currentHistoryFilter();
-  const past = allEvents.filter(e => e.datetime <= now).sort((a, b) => b.datetime - a.datetime).slice(0, 24);
-
-  const rows = past.filter(e => {
-    const status = history[e.id]?.status || "pending";
-    if (filter === "all") return true;
-    return status === filter;
-  });
-
-  const el = document.getElementById("historyList");
-  if (rows.length === 0) {
-    el.innerHTML = `<p class="empty-note">Nothing here yet.</p>`;
-    return;
-  }
-
-  el.innerHTML = rows.map(e => {
-    const entry = history[e.id];
-    const status = entry?.status || "pending";
-    const expanded = expandedHistoryId === e.id;
-    return `
-      <div class="history-row status-${status}${expanded ? " expanded" : ""}" data-id="${e.id}">
-        <div class="hr-main">
-          <span class="hr-type ${e.type}">${e.type === "weekend" ? "Weekend" : "Midweek"}</span>
-          <span class="hr-group">Group ${e.group}</span>
-          <span class="hr-date">${formatDateShort(e.datetime)} · ${formatTime(e.datetime)}</span>
-          <span class="hr-status">${status === "done" ? "✓ Completed" : status === "missed" ? "✕ Missed" : "Unconfirmed"}</span>
-        </div>
-        ${expanded ? `
-        <div class="hr-detail">
-          <textarea class="hr-note" placeholder="Optional note (who supervised, anything to flag)...">${entry?.note || ""}</textarea>
-          <div class="hr-actions">
-            <button class="btn btn-sm btn-done" data-action="done">Mark Completed</button>
-            <button class="btn btn-sm btn-missed" data-action="missed">Mark Missed</button>
-            <button class="btn btn-sm btn-ghost" data-action="clear">Clear</button>
-          </div>
-        </div>` : ""}
-      </div>`;
-  }).join("");
-
-  el.querySelectorAll(".history-row").forEach(row => {
-    const id = row.dataset.id;
-    row.querySelector(".hr-main").addEventListener("click", () => {
-      expandedHistoryId = expandedHistoryId === id ? null : id;
-      renderHistory();
-    });
-    row.querySelectorAll("[data-action]").forEach(btn => {
-      btn.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        const action = btn.dataset.action;
-        const note = row.querySelector(".hr-note")?.value || "";
-        if (action === "clear") {
-          saveHistoryEntry(id, null);
-        } else {
-          saveHistoryEntry(id, { status: action, note, savedAt: nowMs() });
-        }
-        toast(action === "clear" ? "Cleared" : "Saved");
-        renderHistory();
-      });
-    });
-  });
-}
-
-// ---------------------------------------------------------------------
 // Settings modal
 // ---------------------------------------------------------------------
 function populateDaySelect(select, includeSunday) {
@@ -649,7 +560,7 @@ function wireSettings() {
   });
 
   document.getElementById("resetDataBtn").addEventListener("click", () => {
-    if (!confirm("Reset all locally saved settings and history? This can't be undone.")) return;
+    if (!confirm("Reset all locally saved settings? This can't be undone.")) return;
     Object.values(STORAGE_KEYS).forEach(k => localStorage.removeItem(k));
     recomputeSchedule();
     renderAll();
@@ -721,7 +632,16 @@ function resolvedTheme() {
   return choice === "auto" ? scheduleTheme() : choice;
 }
 function applyThemeNow() {
-  document.documentElement.setAttribute("data-theme", resolvedTheme());
+  const resolved = resolvedTheme();
+  document.documentElement.setAttribute("data-theme", resolved);
+  // Favicon/app-icon follows the same resolved theme (schedule, temp
+  // lock, or permanent setting — not just OS prefers-color-scheme), so
+  // it matches whatever's actually showing on screen.
+  const iconHref = resolved === "dark" ? "img/favicon-dark.png" : "img/favicon-light.png";
+  const favicon = document.getElementById("favicon");
+  const appleIcon = document.getElementById("appleTouchIcon");
+  if (favicon && favicon.getAttribute("href") !== iconHref) favicon.setAttribute("href", iconHref);
+  if (appleIcon && appleIcon.getAttribute("href") !== iconHref) appleIcon.setAttribute("href", iconHref);
 }
 function updateThemeUI() {
   const temp = getTempThemeOverride();
@@ -792,6 +712,183 @@ function toast(msg) {
 }
 
 // ---------------------------------------------------------------------
+// Second screen — show the tracker fullscreen on a connected second
+// display (a TV via HDMI, say), via the Window Management API. Chrome/
+// Edge only; requires a one-time permission grant (the first-run banner,
+// or the Settings "Allow Access" button — both need an actual click,
+// browsers won't let a page request this silently).
+//
+// The Tuesday/Sunday scheduled notification (set up separately in
+// Windows Task Scheduler — see /scripts) opens the tracker at
+// `?confirm=1`; that's the trigger for offerSecondScreenConfirm() below.
+// The Settings "Display Now" button offers the same confirmation on
+// demand, any other time.
+// ---------------------------------------------------------------------
+function secondScreenSupported() {
+  return "getScreenDetails" in window;
+}
+function getSecondScreenEnabled() {
+  return readStore(STORAGE_KEYS.secondScreenEnabled, true);
+}
+function getTopDisplayButtonShown() {
+  return readStore(STORAGE_KEYS.secondScreenShowButton, true);
+}
+// getScreenDetails() both asks for permission (if not yet granted, and
+// only works when called from a real click) and returns the screen list
+// — there's no separate "just check" method, so every caller below goes
+// through this one wrapper.
+async function getScreenDetailsOrNull() {
+  if (!secondScreenSupported()) return null;
+  try {
+    return await window.getScreenDetails();
+  } catch (e) {
+    return null; // not yet granted, denied, or no user gesture behind this call
+  }
+}
+async function hasSecondScreenConnected() {
+  const details = await getScreenDetailsOrNull();
+  return !!(details && details.screens && details.screens.length > 1);
+}
+// Requests fullscreen specifically on the *other* screen. This exact
+// capability (fullscreen targeting a non-current display) is a newer
+// part of the Window Management API — if a given Chrome/Edge version
+// doesn't support the {screen} option, this falls back to opening a
+// window positioned to exactly cover that screen instead.
+async function displayOnSecondScreen() {
+  const details = await getScreenDetailsOrNull();
+  const target = details && details.screens.find(s => s !== details.currentScreen);
+  if (!target) {
+    toast("No second screen found");
+    return false;
+  }
+  try {
+    await document.documentElement.requestFullscreen({ screen: target });
+    return true;
+  } catch (e) {
+    try {
+      const w = window.open(location.pathname, "_blank",
+        `left=${target.availLeft},top=${target.availTop},width=${target.availWidth},height=${target.availHeight}`);
+      if (w) {
+        toast("Opened on the second screen — press F11 there if it isn't fullscreen");
+        return true;
+      }
+    } catch (e2) { /* fall through to the toast below */ }
+    toast("Couldn't switch to the second screen automatically");
+    return false;
+  }
+}
+async function offerSecondScreenConfirm() {
+  if (!getSecondScreenEnabled()) return;
+  if (!(await hasSecondScreenConnected())) return; // nothing connected — just let the app load normally
+  showOverlay("secondScreenOverlay");
+}
+// The scheduled-notification launch marker — see the top-of-file note above.
+function checkNotificationLaunch() {
+  const params = new URLSearchParams(location.search);
+  if (params.get("confirm") !== "1") return;
+  history.replaceState(null, "", location.pathname); // don't re-offer on a plain refresh
+  offerSecondScreenConfirm();
+}
+async function updateSecondScreenSettingsUI() {
+  const enabled = getSecondScreenEnabled();
+  document.querySelectorAll("#secondScreenToggle .theme-opt").forEach(b => {
+    b.classList.toggle("active", (b.dataset.secondScreen === "on") === enabled);
+  });
+  const showBtn = getTopDisplayButtonShown();
+  document.querySelectorAll("#topButtonToggle .theme-opt").forEach(b => {
+    b.classList.toggle("active", (b.dataset.topButton === "on") === showBtn);
+  });
+  // Single source of truth for the topbar button's visibility: on, in a
+  // supported browser, wanted in Settings, and not currently mid-display
+  // (document.fullscreenElement covers both "just triggered it" and
+  // "user pressed Escape to leave it" — this same function gets called
+  // from the fullscreenchange listener below, so it comes back on its own).
+  const topBtn = document.getElementById("topDisplayBtn");
+  if (topBtn) topBtn.hidden = !(secondScreenSupported() && enabled && showBtn && !document.fullscreenElement);
+  const statusEl = document.getElementById("secondScreenPermStatus");
+  if (!statusEl) return;
+  if (!secondScreenSupported()) {
+    statusEl.textContent = "Not supported in this browser — use Chrome or Edge.";
+    return;
+  }
+  if (navigator.permissions && navigator.permissions.query) {
+    try {
+      const status = await navigator.permissions.query({ name: "window-management" });
+      statusEl.textContent = "Browser permission: " + (
+        status.state === "granted" ? "allowed ✓" :
+        status.state === "denied" ? "blocked — allow it from Chrome's site settings (the padlock icon)" :
+        "not yet allowed"
+      );
+      return;
+    } catch (e) { /* permission name unrecognized by this browser build — fall through */ }
+  }
+  statusEl.textContent = "Click \"Allow Access\" to check.";
+}
+function wireSecondScreen() {
+  updateSecondScreenSettingsUI();
+
+  if (secondScreenSupported() && !readStore(STORAGE_KEYS.secondScreenBannerSeen, false)) {
+    document.getElementById("secondScreenBanner").hidden = false;
+  }
+  document.getElementById("secondScreenAllow").addEventListener("click", async () => {
+    const details = await getScreenDetailsOrNull();
+    writeStore(STORAGE_KEYS.secondScreenBannerSeen, true);
+    document.getElementById("secondScreenBanner").hidden = true;
+    updateSecondScreenSettingsUI();
+    if (!details) { toast("Permission not granted"); return; }
+    // First-run "yes" both grants access and, if a second screen is
+    // actually connected right now, jumps straight to it — no separate
+    // "is the prayer over" confirmation here, since this is a one-off
+    // setup/verification moment, not the recurring scheduled trigger.
+    if (details.screens.length > 1) {
+      await displayOnSecondScreen();
+    } else {
+      toast("Second-screen access allowed");
+    }
+  });
+  document.getElementById("secondScreenDismissBanner").addEventListener("click", () => {
+    writeStore(STORAGE_KEYS.secondScreenBannerSeen, true);
+    document.getElementById("secondScreenBanner").hidden = true;
+  });
+
+  document.querySelectorAll("#secondScreenToggle .theme-opt").forEach(b => {
+    b.addEventListener("click", () => {
+      writeStore(STORAGE_KEYS.secondScreenEnabled, b.dataset.secondScreen === "on");
+      updateSecondScreenSettingsUI();
+    });
+  });
+  document.querySelectorAll("#topButtonToggle .theme-opt").forEach(b => {
+    b.addEventListener("click", () => {
+      writeStore(STORAGE_KEYS.secondScreenShowButton, b.dataset.topButton === "on");
+      updateSecondScreenSettingsUI();
+    });
+  });
+  // Covers both directions: hides the topbar button the moment a display
+  // actually engages, and brings it back the moment it's left — Escape,
+  // the second screen's own controls, however it happens to end.
+  document.addEventListener("fullscreenchange", () => updateSecondScreenSettingsUI());
+  document.getElementById("secondScreenGrantBtn").addEventListener("click", async () => {
+    const details = await getScreenDetailsOrNull();
+    toast(details ? "Access allowed" : "Permission not granted");
+    updateSecondScreenSettingsUI();
+  });
+  const manualDisplayTrigger = async () => {
+    if (!(await hasSecondScreenConnected())) { toast("No second screen detected"); return; }
+    showOverlay("secondScreenOverlay");
+  };
+  document.getElementById("secondScreenManualBtn").addEventListener("click", manualDisplayTrigger);
+  document.getElementById("topDisplayBtn").addEventListener("click", manualDisplayTrigger);
+
+  document.getElementById("closeSecondScreen").addEventListener("click", () => hideOverlay("secondScreenOverlay"));
+  document.getElementById("secondScreenNo").addEventListener("click", () => hideOverlay("secondScreenOverlay"));
+  document.getElementById("secondScreenYes").addEventListener("click", async () => {
+    hideOverlay("secondScreenOverlay");
+    await displayOnSecondScreen();
+    updateSecondScreenSettingsUI(); // hides the topbar button immediately; fullscreenchange brings it back on exit
+  });
+}
+
+// ---------------------------------------------------------------------
 // Wiring + init
 // ---------------------------------------------------------------------
 function renderAll() {
@@ -799,7 +896,6 @@ function renderAll() {
   renderNextCard();
   renderTimeline();
   renderGroupGrid();
-  renderHistory();
 }
 
 function wireMisc() {
@@ -819,15 +915,6 @@ function wireMisc() {
     });
   });
 
-  document.querySelectorAll("#historyFilters .tab").forEach(tab => {
-    tab.addEventListener("click", () => {
-      document.querySelectorAll("#historyFilters .tab").forEach(t => t.classList.remove("active"));
-      tab.classList.add("active");
-      expandedHistoryId = null;
-      renderHistory();
-    });
-  });
-
   document.getElementById("congName").textContent = CONGREGATION_NAME;
   document.getElementById("year").textContent = new Date().getUTCFullYear();
 }
@@ -838,6 +925,8 @@ function init() {
   wireSettings();
   wireTheme();
   wireHeroRosterExpand();
+  wireSecondScreen();
+  checkNotificationLaunch();
   renderAll();
   tickClock();
   tickCountdown();

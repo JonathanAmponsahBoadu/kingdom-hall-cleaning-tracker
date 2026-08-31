@@ -17,7 +17,8 @@
   })();
 </script>
 <meta name="description" content="New Legon Twi Congregation — Field Service Group cleaning rotation, live in Ghana time.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧹</text></svg>">
+<link rel="icon" id="favicon" type="image/png" href="img/favicon-light.png">
+<link rel="apple-touch-icon" id="appleTouchIcon" href="img/favicon-light.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
@@ -38,6 +39,13 @@
       <p class="subtitle">Cleaning Tracker</p>
     </div>
   </div>
+  <button type="button" class="topbar-display-btn" id="topDisplayBtn" hidden>
+    <span class="topbar-display-icon">
+      <img class="day" src="img/icon-tv-blue.png" alt="">
+      <img class="night" src="img/icon-tv-gold.png" alt="">
+    </span>
+    Display Now
+  </button>
   <div class="clock" id="liveClock">
     <span class="clock-time" id="clockTime">--:--:--</span>
     <span class="clock-date" id="clockDate">Loading…</span>
@@ -136,18 +144,6 @@
     <div class="group-grid" id="groupGrid"></div>
   </section>
 
-  <section class="section">
-    <div class="section-head">
-      <h2>Cleaning History</h2>
-      <div class="filter-tabs" id="historyFilters">
-        <button type="button" class="tab active" data-filter="all">All</button>
-        <button type="button" class="tab" data-filter="done">Completed</button>
-        <button type="button" class="tab" data-filter="missed">Missed</button>
-        <button type="button" class="tab" data-filter="pending">Unconfirmed</button>
-      </div>
-    </div>
-    <div class="history-list" id="historyList"></div>
-  </section>
 
 </main>
 
@@ -215,11 +211,56 @@
       </div>
 
       <div class="settings-block">
+        <h4>Second Screen</h4>
+        <p class="hint">Show the tracker fullscreen on a connected second display (a TV via HDMI, say) — triggered by the Tuesday/Sunday reminder, or on demand below. Needs Chrome or Edge.</p>
+        <div class="theme-choice" id="secondScreenToggle">
+          <button type="button" class="theme-opt" data-second-screen="on">On</button>
+          <button type="button" class="theme-opt" data-second-screen="off">Off</button>
+        </div>
+        <p class="hint" style="margin-top:12px;">Show the "Display Now" shortcut in the top bar?</p>
+        <div class="theme-choice" id="topButtonToggle">
+          <button type="button" class="theme-opt" data-top-button="on">Show</button>
+          <button type="button" class="theme-opt" data-top-button="off">Hide</button>
+        </div>
+        <p class="hint" id="secondScreenPermStatus" style="margin-top:12px;">Checking browser support…</p>
+        <div class="field-row">
+          <button type="button" class="btn" id="secondScreenGrantBtn">Allow Access</button>
+          <button type="button" class="btn" id="secondScreenManualBtn">Display Now</button>
+        </div>
+      </div>
+
+      <div class="settings-block">
         <h4>Data</h4>
-        <p class="hint">History notes and any changes above are stored only in this browser.</p>
+        <p class="hint">Any changes above are stored only in this browser.</p>
         <button type="button" class="btn btn-danger" id="resetDataBtn">Reset all local data</button>
       </div>
 
+    </div>
+  </div>
+</div>
+
+<!-- First-run banner offering second-screen access -->
+<div class="second-screen-banner" id="secondScreenBanner" hidden>
+  <p>Allow second-screen display?</p>
+  <div class="banner-actions">
+    <button type="button" class="btn" id="secondScreenDismissBanner">No</button>
+    <button type="button" class="btn btn-accent" id="secondScreenAllow">Yes</button>
+  </div>
+</div>
+
+<!-- Second-screen display confirmation -->
+<div class="modal-overlay" id="secondScreenOverlay" hidden>
+  <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="secondScreenTitle">
+    <div class="modal-head">
+      <h3 id="secondScreenTitle">Display on second screen?</h3>
+      <button type="button" class="icon-btn" id="closeSecondScreen" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="hint" style="margin-bottom:20px;">Is the closing prayer over? Displaying now will take over the second screen.</p>
+      <div class="confirm-actions">
+        <button type="button" class="btn" id="secondScreenNo">No</button>
+        <button type="button" class="btn btn-accent" id="secondScreenYes">Yes, display</button>
+      </div>
     </div>
   </div>
 </div>

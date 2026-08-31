@@ -175,6 +175,38 @@ button { font-family: inherit; }
 .brand h1 { font-size: clamp(1.05rem, 2.4vw, 1.4rem); font-weight: 800; }
 .subtitle { color: var(--text-dim); font-size: 0.85rem; margin-top: 2px; }
 
+/* Sits between the brand and the clock — .brand's margin-right:auto
+   already pushes everything after it to the right, so this just needs
+   to exist in that DOM position. Hidden by default; JS shows it only
+   when the second-screen feature is on, and hides it again the moment
+   a display actually succeeds. Its icon crossfades blue/gold with the
+   theme, same trick as the header logo and the roster panel's photo. */
+.topbar-display-btn {
+  display: flex; align-items: center; gap: 8px; flex: none;
+  background: rgba(var(--accent-rgb), 0.12);
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
+  color: var(--accent-text);
+  padding: 7px 16px 7px 8px;
+  border-radius: 999px;
+  font-family: inherit; font-size: 0.82rem; font-weight: 700;
+  white-space: nowrap; cursor: pointer;
+  transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+}
+.topbar-display-btn:hover { transform: translateY(-1px); background: rgba(var(--accent-rgb), 0.2); }
+.topbar-display-btn[hidden] { display: none; }
+.topbar-display-icon { position: relative; width: 24px; height: 24px; flex: none; }
+.topbar-display-icon img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: contain; opacity: 1; transition: opacity 0.35s ease;
+}
+.topbar-display-icon img.night { opacity: 0; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .topbar-display-icon img.day { opacity: 0; }
+  :root:not([data-theme="light"]) .topbar-display-icon img.night { opacity: 1; }
+}
+:root[data-theme="dark"] .topbar-display-icon img.day { opacity: 0; }
+:root[data-theme="dark"] .topbar-display-icon img.night { opacity: 1; }
+
 .clock {
   display: flex; align-items: baseline; gap: 8px;
   background: var(--bg-card);
@@ -684,57 +716,6 @@ body.ready .hero-number-panel { animation: rise 0.6s cubic-bezier(.2,.8,.2,1) fo
 .group-count { color: var(--text-dim); font-size: 0.78rem; margin-top: 4px; }
 
 /* ---------------------------------------------------------------------
-   History
-   --------------------------------------------------------------------- */
-.filter-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
-.tab {
-  background: var(--bg-card); border: 1px solid var(--border-soft);
-  color: var(--text-dim); padding: 7px 14px; border-radius: 999px;
-  font-size: 0.8rem; cursor: pointer; transition: all .2s ease;
-}
-.tab:hover { color: var(--text); }
-.tab.active { background: var(--accent); color: var(--accent-contrast-text); border-color: var(--accent); font-weight: 700; }
-
-.history-list { display: flex; flex-direction: column; gap: 8px; }
-.history-row {
-  background: var(--bg-card); border: 1px solid var(--border-soft);
-  border-left: 3px solid var(--border-soft);
-  border-radius: var(--radius-sm); overflow: hidden;
-  transition: border-color .2s ease;
-}
-.history-row.status-done { border-left-color: var(--green); }
-.history-row.status-missed { border-left-color: var(--red); }
-.history-row.status-pending { border-left-color: var(--text-dimmer); }
-
-.hr-main {
-  display: grid; grid-template-columns: auto auto 1fr auto; align-items: center;
-  gap: 12px; padding: 12px 16px; cursor: pointer; font-size: 0.85rem;
-}
-@media (max-width: 640px) { .hr-main { grid-template-columns: 1fr 1fr; row-gap: 6px; } }
-.hr-type {
-  font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
-  padding: 3px 8px; border-radius: 999px;
-}
-.hr-type.weekend { background: rgba(111,163,224,0.18); color: var(--blue-text); }
-.hr-type.midweek { background: rgba(var(--accent-rgb), 0.18); color: var(--accent-text); }
-.hr-group { font-weight: 700; }
-.hr-date { color: var(--text-dim); }
-.hr-status { justify-self: end; font-size: 0.78rem; color: var(--text-dim); }
-.status-done .hr-status { color: var(--green-text); }
-.status-missed .hr-status { color: var(--red-text); }
-
-.hr-detail { padding: 0 16px 16px; display: flex; flex-direction: column; gap: 10px; animation: rise 0.3s ease forwards; }
-.hr-note {
-  width: 100%; min-height: 60px; resize: vertical;
-  background: var(--bg-card); border: 1px solid var(--border-soft);
-  border-radius: var(--radius-sm); color: var(--text); padding: 10px; font-family: inherit; font-size: 0.85rem;
-}
-.hr-note:focus { outline: 1px solid var(--accent); }
-.hr-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-
-.empty-note { color: var(--text-dimmer); font-size: 0.85rem; padding: 18px 4px; }
-
-/* ---------------------------------------------------------------------
    Buttons
    --------------------------------------------------------------------- */
 .btn {
@@ -744,11 +725,8 @@ body.ready .hero-number-panel { animation: rise 0.6s cubic-bezier(.2,.8,.2,1) fo
   transition: transform .15s ease, background .2s ease;
 }
 .btn:hover { transform: translateY(-1px); }
-.btn-sm { padding: 6px 12px; font-size: 0.76rem; }
-.btn-done { background: var(--green-soft); border-color: rgba(67,184,132,0.4); color: var(--green-text); }
-.btn-missed { background: var(--red-soft); border-color: rgba(226,99,90,0.4); color: var(--red-text); }
-.btn-ghost { background: transparent; }
 .btn-danger { background: var(--red-soft); border-color: rgba(226,99,90,0.4); color: var(--red-text); }
+.btn-accent { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast-text); }
 
 /* ---------------------------------------------------------------------
    Footer
@@ -776,12 +754,14 @@ footer { text-align: center; padding: 30px 16px 50px; color: var(--text-dimmer);
   transform: translateY(14px) scale(0.98); transition: transform 0.25s cubic-bezier(.2,.8,.2,1);
 }
 .modal-overlay.open .modal { transform: translateY(0) scale(1); }
+.modal.modal-sm { width: min(400px, 100%); }
 .modal-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 18px 22px; border-bottom: 1px solid var(--border-soft);
   position: sticky; top: 0; background: var(--bg-elev);
 }
 .modal-body { padding: 20px 22px 26px; }
+.confirm-actions { display: flex; gap: 10px; justify-content: flex-end; }
 
 .settings-block { margin-bottom: 24px; }
 .settings-block h4 { font-size: 0.95rem; margin-bottom: 6px; }
@@ -810,6 +790,40 @@ footer { text-align: center; padding: 30px 16px 50px; color: var(--text-dimmer);
   border-radius: var(--radius-sm); padding: 8px 12px; font-size: 0.8rem; color: var(--text-dim);
 }
 .override-list li strong { color: var(--text); }
+
+/* First-run banner offering second-screen access — a light, dismissible
+   strip (not a modal, since it's an optional feature to opt into rather
+   than something blocking), pinned top-right under the topbar with a
+   gentle pulse to draw the eye without being obnoxious about it. */
+.second-screen-banner {
+  position: fixed; top: 78px; right: 16px;
+  z-index: 40;
+  display: flex; align-items: center; gap: 10px;
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: var(--radius-md); box-shadow: 0 14px 34px -16px rgba(0,0,0,0.4);
+  padding: 10px 12px;
+  max-width: calc(100vw - 32px);
+  animation: bannerRise 0.4s cubic-bezier(.2,.8,.2,1), bannerPulse 2.6s ease-in-out 0.5s infinite;
+}
+.second-screen-banner[hidden] { display: none; }
+@keyframes bannerRise { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes bannerPulse {
+  0%, 100% { box-shadow: 0 14px 34px -16px rgba(0,0,0,0.4), 0 0 0 0 rgba(var(--accent-rgb), 0.4); }
+  50% { box-shadow: 0 14px 34px -16px rgba(0,0,0,0.4), 0 0 0 7px rgba(var(--accent-rgb), 0); }
+}
+.second-screen-banner p { font-size: 0.78rem; color: var(--text); }
+.second-screen-banner .banner-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.second-screen-banner .btn { padding: 6px 12px; font-size: 0.74rem; }
+@media (prefers-reduced-motion: reduce) {
+  .second-screen-banner { animation: bannerRise 0.4s cubic-bezier(.2,.8,.2,1); }
+}
+@media (max-width: 480px) {
+  .second-screen-banner {
+    flex-direction: column; align-items: stretch; text-align: center;
+    top: 72px; right: 10px; left: 10px; max-width: none;
+  }
+  .second-screen-banner .banner-actions { justify-content: center; }
+}
 
 /* ---------------------------------------------------------------------
    Toast

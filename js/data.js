@@ -100,5 +100,7 @@ const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "Ju
 const STORAGE_KEYS = {
   config: "khct.config.v1",
   overrides: "khct.overrides.v1",
-  history: "khct.history.v1"
+  secondScreenEnabled: "khct.secondScreen.enabled.v1",
+  secondScreenShowButton: "khct.secondScreen.showButton.v1",
+  secondScreenBannerSeen: "khct.secondScreen.bannerSeen.v1"
 };
