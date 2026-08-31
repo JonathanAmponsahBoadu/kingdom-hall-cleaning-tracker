@@ -6,9 +6,12 @@
 <title>Kingdom Hall Cleaning Tracker</title>
 <script>
   // Applied before first paint so there's no flash of the wrong theme.
+  // Mirrors app.js's temp-lock-wins-over-permanent-setting logic.
   (function () {
     try {
-      var t = localStorage.getItem("khct.theme");
+      var temp = JSON.parse(localStorage.getItem("khct.themeTemp") || "null");
+      var validTemp = temp && (temp.choice === "light" || temp.choice === "dark") && temp.expiresAt > Date.now();
+      var t = validTemp ? temp.choice : localStorage.getItem("khct.theme");
       if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
     } catch (e) {}
   })();
@@ -27,24 +30,12 @@
 <header class="topbar">
   <div class="brand">
     <div class="brand-mark" aria-hidden="true">
-      <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-        <!-- broom -->
-        <line x1="9" y1="5" x2="19" y2="25" stroke="var(--text-dim)" stroke-width="2.4" stroke-linecap="round"/>
-        <path d="M14,23 L24,23 L28,41 L10,41 Z" fill="var(--accent)"/>
-        <path d="M17,41 L18,28 M21,41 L21,25 M24,41 L23,28" stroke="var(--bg)" stroke-width="1" opacity="0.35" stroke-linecap="round"/>
-        <!-- mop -->
-        <line x1="39" y1="5" x2="29" y2="25" stroke="var(--text-dim)" stroke-width="2.4" stroke-linecap="round"/>
-        <path d="M29,25 Q23,33 21,43" stroke="var(--green)" stroke-width="2.6" fill="none" stroke-linecap="round"/>
-        <path d="M29,25 Q28,35 27,44" stroke="var(--green)" stroke-width="2.6" fill="none" stroke-linecap="round"/>
-        <path d="M29,25 Q33,34 34,43" stroke="var(--green)" stroke-width="2.6" fill="none" stroke-linecap="round"/>
-        <!-- duster -->
-        <line x1="24" y1="39" x2="24" y2="30" stroke="var(--text-dim)" stroke-width="2" stroke-linecap="round"/>
-        <path d="M17,27 Q18,19 24,19 Q30,19 31,27 Q30,32 24,31 Q18,32 17,27 Z" fill="var(--red)" opacity="0.85"/>
-      </svg>
+      <img class="brand-mark-img day" src="img/logo-light.png" alt="">
+      <img class="brand-mark-img night" src="img/logo-dark.png" alt="">
     </div>
     <div>
       <h1 id="congName">New Legon Twi Congregation</h1>
-      <p class="subtitle">Kingdom Hall Cleaning Tracker</p>
+      <p class="subtitle">Cleaning Tracker</p>
     </div>
   </div>
   <div class="clock" id="liveClock">
@@ -52,19 +43,39 @@
     <span class="clock-date" id="clockDate">Loading…</span>
     <span class="tz-badge">Africa/Accra</span>
   </div>
-  <button type="button" class="icon-btn" id="themeToggle" aria-label="Toggle light/dark theme">🌙</button>
+  <button type="button" class="icon-btn" id="themeToggle" aria-label="Toggle light/dark theme">
+    <svg class="theme-icon icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="4.5"/>
+      <path d="M12 2.5v3M12 18.5v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2.5 12h3M18.5 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>
+    </svg>
+    <svg class="theme-icon icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5Z"/>
+    </svg>
+  </button>
   <button type="button" class="icon-btn" id="settingsBtn" aria-label="Settings">⚙</button>
 </header>
 
 <main>
 
   <section class="hero-top">
-    <div class="hero-photo-frame">
-      <img class="hero-photo-img day" src="img/kingdom-hall-day.jpg" alt="New Legon Twi Kingdom Hall in daylight" loading="lazy">
-      <img class="hero-photo-img night" src="img/kingdom-hall-night.jpg" alt="New Legon Twi Kingdom Hall at night" loading="lazy">
+    <div class="hero-roster-panel">
+      <div class="hero-roster-photo">
+        <img class="hero-roster-photo-img day" src="img/kingdom-hall-day.jpg" alt="New Legon Twi Kingdom Hall in daylight" loading="lazy">
+        <img class="hero-roster-photo-img night" src="img/kingdom-hall-night.jpg" alt="New Legon Twi Kingdom Hall at night" loading="lazy">
+      </div>
+      <div class="hero-roster-body">
+        <span class="eyebrow">This Week's Team</span>
+        <ul class="roster-list hero-roster-pinned" id="heroRosterPinned"></ul>
+        <div class="hero-roster-cycle" id="heroRosterCycle" aria-hidden="true">
+          <div class="hero-roster-track" id="heroRosterTrack"></div>
+        </div>
+        <div class="hero-roster-dots" id="heroRosterDots" aria-hidden="true"></div>
+        <ul class="roster-list hero-roster-full" id="heroRosterFull"></ul>
+      </div>
     </div>
     <div class="hero-number-panel">
-      <span class="eyebrow">This Week's Assignment</span>
+      <span class="hero-burst-3" aria-hidden="true"></span>
+      <span class="eyebrow">Cleaning Group</span>
       <div class="hero-num-big">
         <span class="num-word">Group</span>
         <span class="num-digit" id="heroNumDigit">–</span>
@@ -72,7 +83,6 @@
       <p class="hero-leader" id="heroLeader">Led by —</p>
     </div>
   </section>
-  <p class="hero-photo-caption">New Legon Twi Kingdom Hall</p>
 
   <section class="hero-grid">
     <div class="card hero-card" id="currentCard">
@@ -156,7 +166,7 @@
 
       <div class="settings-block">
         <h4>Theme</h4>
-        <p class="hint">Auto follows the cleaning schedule itself — dark for the midweek stretch, light for the weekend stretch. Or lock it to one.</p>
+        <p class="hint">Auto goes dark Monday 12am–Saturday 12am (the midweek stretch) and light Saturday 12am–Monday 12am (the weekend stretch). Locking one here is permanent — the 🌙/☀️ button up top only locks it for 2 hours before it reverts to this setting.</p>
         <div class="theme-choice" id="themeChoice">
           <button type="button" class="theme-opt" data-theme-choice="auto">Auto (schedule)</button>
           <button type="button" class="theme-opt" data-theme-choice="light">Light</button>

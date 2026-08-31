@@ -192,7 +192,122 @@ function rosterListHTML(g) {
   }).join("");
 }
 
-let heroNumRenderedFor = null; // which group the big hero number was last drawn for
+// ---------------------------------------------------------------------
+// Hero team panel — Leader + Assistant stay pinned; everyone else
+// auto-cycles through fixed-size "pages" that slide left and loop
+// forever, sized to whatever fits the available height so nothing needs
+// scrolling. Hovering (mouse) or tapping (touch) the panel pauses that
+// and expands to a plain full list of everyone, over a blurred photo.
+// ---------------------------------------------------------------------
+const HERO_ROSTER_ROW_H = 30;   // keep in sync with the li sizing in style.css
+const HERO_ROSTER_CYCLE_MS = 4500;
+
+function otherMembersHTML(names) {
+  return names.map(n => `<li><span>${n}</span></li>`).join("") || `<li><span>—</span></li>`;
+}
+
+let heroCycleTimer = null;
+let heroCyclePageIdx = 0;
+let heroCyclePageCount = 1;
+
+function computeHeroRosterPageSize() {
+  const cycle = document.getElementById("heroRosterCycle");
+  const h = cycle ? cycle.clientHeight : 0;
+  if (h < HERO_ROSTER_ROW_H) return 6; // not laid out yet (or too cramped to measure) — sane fallback
+  return Math.max(3, Math.floor(h / HERO_ROSTER_ROW_H));
+}
+function renderHeroRosterDots(count, active) {
+  const dots = document.getElementById("heroRosterDots");
+  if (!dots) return;
+  dots.innerHTML = count <= 1 ? "" : Array.from({ length: count }, (_, i) =>
+    `<span class="${i === active ? "active" : ""}"></span>`).join("");
+}
+function updateHeroRosterDots(active) {
+  document.querySelectorAll("#heroRosterDots span").forEach((d, i) => d.classList.toggle("active", i === active));
+}
+function stopHeroRosterCycle() {
+  if (heroCycleTimer) { clearInterval(heroCycleTimer); heroCycleTimer = null; }
+}
+function startHeroRosterCycle() {
+  stopHeroRosterCycle();
+  if (heroCyclePageCount <= 1) return;
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  heroCycleTimer = setInterval(advanceHeroRosterPage, HERO_ROSTER_CYCLE_MS);
+}
+function advanceHeroRosterPage() {
+  const track = document.getElementById("heroRosterTrack");
+  if (!track) return;
+  heroCyclePageIdx++;
+  track.style.transform = `translateX(-${heroCyclePageIdx * 100}%)`;
+  updateHeroRosterDots(heroCyclePageIdx % heroCyclePageCount);
+  // The last "page" is a clone of the first, appended so the slide can
+  // keep going left seamlessly; once we land on it, snap back to the
+  // real first page with no transition so the loop is invisible.
+  if (heroCyclePageIdx === heroCyclePageCount) {
+    track.addEventListener("transitionend", function reset() {
+      track.removeEventListener("transitionend", reset);
+      track.style.transition = "none";
+      heroCyclePageIdx = 0;
+      track.style.transform = "translateX(0%)";
+      void track.offsetWidth; // force reflow so the "none" transition applies before re-enabling
+      track.style.transition = "";
+    }, { once: true });
+  }
+}
+function renderHeroRosterCycle(g) {
+  const leader = GROUP_LEADERS[g], asst = GROUP_ASSISTANTS[g];
+  const others = GROUPS[g].filter(n => n !== leader && n !== asst);
+
+  document.getElementById("heroRosterPinned").innerHTML =
+    `<li><span>${leader}</span><span class="role-tag lead">Leader</span></li>` +
+    (asst ? `<li><span>${asst}</span><span class="role-tag asst">Asst</span></li>` : "");
+  document.getElementById("heroRosterFull").innerHTML = otherMembersHTML(others);
+
+  const pageSize = computeHeroRosterPageSize();
+  const pages = [];
+  for (let i = 0; i < others.length; i += pageSize) pages.push(others.slice(i, i + pageSize));
+  if (!pages.length) pages.push([]);
+  heroCyclePageCount = pages.length;
+  heroCyclePageIdx = 0;
+
+  const track = document.getElementById("heroRosterTrack");
+  const pageHTML = p => `<ul class="roster-list hero-roster-page">${otherMembersHTML(p)}</ul>`;
+  track.style.transition = "none";
+  track.innerHTML = pages.map(pageHTML).join("") + (pages.length > 1 ? pageHTML(pages[0]) : "");
+  track.style.transform = "translateX(0%)";
+  void track.offsetWidth;
+  track.style.transition = "";
+
+  renderHeroRosterDots(pages.length, 0);
+  startHeroRosterCycle();
+}
+function wireHeroRosterExpand() {
+  const panel = document.querySelector(".hero-roster-panel");
+  if (!panel) return;
+  function setExpanded(on) {
+    if (panel.classList.contains("expanded") === on) return;
+    panel.classList.toggle("expanded", on);
+    if (on) stopHeroRosterCycle(); else startHeroRosterCycle();
+  }
+  // Real hover only exists on mouse/trackpad devices — touch gets a tap
+  // toggle instead, since there's no hover state to drive it from.
+  const canHover = window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+  if (canHover) {
+    panel.addEventListener("mouseenter", () => setExpanded(true));
+    panel.addEventListener("mouseleave", () => setExpanded(false));
+  } else {
+    panel.addEventListener("click", () => setExpanded(!panel.classList.contains("expanded")));
+  }
+
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => renderHeroRosterCycle(currentGroup), 200);
+  });
+}
+
+let heroNumRenderedFor = null;    // which group the big hero number was last drawn for
+let heroRosterRenderedFor = null; // which group the hero team panel was last drawn for
 
 function renderHero() {
   const now = nowMs();
@@ -208,6 +323,10 @@ function renderHero() {
     heroNumRenderedFor = currentGroup;
   }
   document.getElementById("heroLeader").innerHTML = `Led by <strong>${GROUP_LEADERS[currentGroup]}</strong>`;
+  if (heroRosterRenderedFor !== currentGroup) {
+    renderHeroRosterCycle(currentGroup);
+    heroRosterRenderedFor = currentGroup;
+  }
 
   blockEvents.forEach(e => {
     const pillId = e.type === "weekend" ? "weekendPill" : "midweekPill";
@@ -541,10 +660,23 @@ function wireSettings() {
 
 // ---------------------------------------------------------------------
 // Theme (light / dark) — "Auto" follows the cleaning schedule itself:
-// dark for the midweek stretch, light for the weekend stretch. A user
-// can still lock it to one via the header toggle or Settings; that
-// choice is remembered (localStorage) until they switch back to Auto.
+// dark Monday 12am through Saturday 12am (the midweek stretch), light
+// Saturday 12am through Monday 12am (the weekend stretch — Saturday
+// through Sunday, covering the run-up to Sunday's cleaning as well as
+// the cleaning itself). Ghana has no DST and sits at UTC+0 year-round,
+// so a UTC day boundary IS the Ghana midnight boundary.
+//
+// Two ways to override Auto:
+//  - The header toggle is a TEMPORARY lock — it flips the theme, but
+//    only for 2 hours, after which it reverts to whatever the real
+//    setting is (Auto by default). Good for "leave it alone for now"
+//    without committing to anything.
+//  - Settings sets a PERMANENT choice (Auto/Light/Dark) that sticks
+//    until changed there again, and immediately cancels any temporary
+//    lock in place.
 // ---------------------------------------------------------------------
+const TEMP_THEME_MS = 2 * 60 * 60 * 1000; // 2 hours
+
 function getStoredThemeChoice() {
   try { return localStorage.getItem("khct.theme"); } catch (e) { return null; }
 }
@@ -554,18 +686,35 @@ function setStoredThemeChoice(v) {
     else localStorage.setItem("khct.theme", v);
   } catch (e) {}
 }
-// dark while the next thing on the calendar is a midweek cleaning; light
-// once that's done and the next thing is a weekend cleaning.
-function scheduleTheme() {
-  const idx = weekIndexForMs(nowMs());
-  const evs = getEventsRange(idx, idx + 1);
-  const now = nowMs();
-  const upcoming = evs.find(e => e.datetime > now);
-  return upcoming && upcoming.type === "midweek" ? "dark" : "light";
+function getTempThemeOverride() {
+  try {
+    const raw = localStorage.getItem("khct.themeTemp");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const valid = parsed && (parsed.choice === "light" || parsed.choice === "dark") && parsed.expiresAt > nowMs();
+    if (!valid) { localStorage.removeItem("khct.themeTemp"); return null; }
+    return parsed;
+  } catch (e) { return null; }
 }
-function themeChoice() {
+function setTempThemeOverride(choice) {
+  try { localStorage.setItem("khct.themeTemp", JSON.stringify({ choice, expiresAt: nowMs() + TEMP_THEME_MS })); } catch (e) {}
+}
+function clearTempThemeOverride() {
+  try { localStorage.removeItem("khct.themeTemp"); } catch (e) {}
+}
+function scheduleTheme() {
+  const day = new Date(nowMs()).getUTCDay(); // 0=Sun .. 6=Sat
+  return day >= 1 && day <= 5 ? "dark" : "light"; // Mon-Fri = midweek stretch, Sat/Sun = weekend stretch
+}
+// The permanent setting, exactly as chosen in Settings — "auto" unless locked there.
+function permanentThemeChoice() {
   const stored = getStoredThemeChoice();
   return stored === "light" || stored === "dark" ? stored : "auto";
+}
+// What's actually in effect right now: an unexpired temporary lock wins, else the permanent setting.
+function themeChoice() {
+  const temp = getTempThemeOverride();
+  return temp ? temp.choice : permanentThemeChoice();
 }
 function resolvedTheme() {
   const choice = themeChoice();
@@ -575,27 +724,38 @@ function applyThemeNow() {
   document.documentElement.setAttribute("data-theme", resolvedTheme());
 }
 function updateThemeUI() {
-  const choice = themeChoice();
+  const temp = getTempThemeOverride();
+  const permanent = permanentThemeChoice();
   const resolved = resolvedTheme();
   const btn = document.getElementById("themeToggle");
   if (btn) {
-    btn.textContent = resolved === "dark" ? "☀️" : "🌙";
-    btn.title = choice === "auto"
-      ? `Auto (currently ${resolved} — following the cleaning schedule). Click to lock ${resolved === "dark" ? "light" : "dark"}.`
-      : `Locked to ${choice}. Click to switch.`;
+    btn.classList.toggle("show-sun", resolved === "dark");
+    btn.classList.toggle("show-moon", resolved !== "dark");
+    if (temp) {
+      const mins = Math.max(1, Math.round((temp.expiresAt - nowMs()) / 60000));
+      btn.title = `Locked to ${temp.choice} for ~${mins} more min, then back to ${permanent === "auto" ? "Auto" : permanent}. Click to switch. Set a permanent theme in Settings.`;
+    } else {
+      btn.title = permanent === "auto"
+        ? `Auto (currently ${resolved} — following the cleaning schedule). Click to lock ${resolved === "dark" ? "light" : "dark"} for 2 hours.`
+        : `Locked to ${permanent} (set in Settings). Click to switch for 2 hours.`;
+    }
   }
   document.querySelectorAll("#themeChoice .theme-opt").forEach(b => {
-    b.classList.toggle("active", b.dataset.themeChoice === choice);
+    b.classList.toggle("active", b.dataset.themeChoice === permanent);
   });
 }
 function setTheme(choice) {
+  // Settings only — sets the permanent choice and cancels any temporary lock.
+  clearTempThemeOverride();
   setStoredThemeChoice(choice === "auto" ? null : choice);
   applyThemeNow();
   updateThemeUI();
 }
 function wireTheme() {
   document.getElementById("themeToggle").addEventListener("click", () => {
-    setTheme(resolvedTheme() === "dark" ? "light" : "dark");
+    setTempThemeOverride(resolvedTheme() === "dark" ? "light" : "dark");
+    applyThemeNow();
+    updateThemeUI();
   });
   document.querySelectorAll("#themeChoice .theme-opt").forEach(b => {
     b.addEventListener("click", () => setTheme(b.dataset.themeChoice));
@@ -677,6 +837,7 @@ function init() {
   wireMisc();
   wireSettings();
   wireTheme();
+  wireHeroRosterExpand();
   renderAll();
   tickClock();
   tickCountdown();

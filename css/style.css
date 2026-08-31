@@ -28,6 +28,10 @@
   --accent-soft: #bcdff5;
   --accent-rgb: 74, 144, 217;
   --accent-text: #2f6fb0;
+  /* Text color for solid var(--accent) backgrounds (badges, active tabs,
+     etc.) — dark text works fine here since this blue is light, but dark
+     mode's gold accent needs the same treatment for the same reason. */
+  --accent-contrast-text: #08111b;
   --green-text: #1f7a53;
   --red-text: #ae3a30;
   --blue-text: #2f5f92;
@@ -68,6 +72,7 @@
     --accent-soft: #f4d98a;
     --accent-rgb: 224, 181, 88;
     --accent-text: #f0cf7c;
+    --accent-contrast-text: #08111b;
     --green-text: #5cd39f;
     --red-text: #f0918a;
     --blue-text: #8fc0f5;
@@ -92,6 +97,7 @@
   --accent-soft: #f4d98a;
   --accent-rgb: 224, 181, 88;
   --accent-text: #f0cf7c;
+  --accent-contrast-text: #08111b;
   --green-text: #5cd39f;
   --red-text: #f0918a;
   --blue-text: #8fc0f5;
@@ -144,13 +150,28 @@ button { font-family: inherit; }
 }
 .brand { display: flex; align-items: center; gap: 14px; margin-right: auto; }
 .brand-mark {
+  position: relative;
   width: 50px; height: 50px; border-radius: 14px; flex: none;
   background: linear-gradient(145deg, rgba(var(--accent-rgb), 0.16), rgba(67,184,132,0.1));
   border: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: center;
-  padding: 6px;
+  overflow: hidden;
 }
-.brand-mark svg { width: 100%; height: 100%; }
+/* Crossfades light/dark with the active theme — blue-accent logo for
+   light mode, gold for dark, matching each theme's accent color.
+   object-fit: contain (not cover) so the whole logo stays visible, just
+   scaled down, rather than being cropped. */
+.brand-mark-img {
+  position: absolute; inset: 6px;
+  width: calc(100% - 12px); height: calc(100% - 12px);
+  object-fit: contain; opacity: 1; transition: opacity 0.35s ease;
+}
+.brand-mark-img.night { opacity: 0; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .brand-mark-img.day { opacity: 0; }
+  :root:not([data-theme="light"]) .brand-mark-img.night { opacity: 1; }
+}
+:root[data-theme="dark"] .brand-mark-img.day { opacity: 0; }
+:root[data-theme="dark"] .brand-mark-img.night { opacity: 1; }
 .brand h1 { font-size: clamp(1.05rem, 2.4vw, 1.4rem); font-weight: 800; }
 .subtitle { color: var(--text-dim); font-size: 0.85rem; margin-top: 2px; }
 
@@ -182,6 +203,17 @@ button { font-family: inherit; }
 #themeToggle:hover { transform: rotate(18deg) scale(1.05); }
 .icon-btn.sm { width: 28px; height: 28px; font-size: 0.8rem; }
 
+/* Sun/moon as tinted SVGs rather than emoji — emoji glyphs render with
+   their own fixed built-in colors and ignore `color`, so there'd be no
+   way to make the moon blue in light mode / gold in dark mode. Both
+   icons share the accent color; only one is ever shown at a time,
+   toggled in JS via the show-sun/show-moon class on the button. */
+.theme-icon { width: 20px; height: 20px; display: none; }
+#themeToggle.show-sun .icon-sun { display: block; }
+#themeToggle.show-moon .icon-moon { display: block; }
+.icon-sun { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.icon-moon { fill: var(--accent); stroke: none; }
+
 /* ---------------------------------------------------------------------
    Layout
    --------------------------------------------------------------------- */
@@ -209,45 +241,107 @@ body.ready .next-card { animation-delay: 0.1s; }
 }
 
 /* ---------------------------------------------------------------------
-   Hero top: Kingdom Hall photo (40%) side-by-side with a huge pulsating
-   group number (60%). Photo crossfades day/night with the active theme;
-   no overlay tint on it. The number's glow is a blurred solid circle
-   (not a CSS gradient) so it pulses without any color wash.
+   Hero top: this week's team roster (20%) side-by-side with a huge
+   pulsating group number (80%). The number's glow is a blurred solid
+   circle (not a CSS gradient) so it pulses without any color wash.
+
+   Phones and tablets (≤860px, matching the .hero-grid breakpoint below
+   so the whole page settles into "single column" at the same point)
+   stack the two panels instead of squeezing them side by side, with the
+   group number shown first. Big screens (≥861px) go further and fill
+   nearly the whole first screen top-to-bottom, inset to line up with
+   the topbar — see the media query further down.
    --------------------------------------------------------------------- */
 .hero-top {
   display: flex; gap: 18px; align-items: stretch;
   margin: 18px 0 0; flex-wrap: nowrap;
 }
-.hero-photo-frame {
+/* The roster panel splits into a 40% photo strip (Kingdom Hall,
+   crossfading day/night like the header logo) and a 60% team-list area
+   below it. Both are positioned absolutely (not flex-stacked) so the
+   list can slide independently over the photo on expand — see further
+   down. Leader + Assistant stay pinned at the top of the list always;
+   the remaining members auto-cycle through fixed-height "pages" via
+   .hero-roster-track, sliding left and looping forever, sized to
+   whatever fits the available height without scrolling. Hovering (mouse)
+   or tapping (touch) the panel pauses that and expands the list to show
+   everyone at once, blurring the photo behind it as a backdrop. */
+.hero-roster-panel {
   position: relative;
-  flex: 0 1 40%; min-width: 0;
+  flex: 0 1 20%; min-width: 0;
   height: clamp(150px, 34vw, 400px);
-  border-radius: var(--radius-lg);
+  background: var(--bg-card); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-card);
   overflow: hidden;
-  border: 1px solid var(--border-soft);
-  box-shadow: var(--shadow-card);
   opacity: 0; transform: translateY(14px);
 }
-body.ready .hero-photo-frame { animation: rise 0.6s cubic-bezier(.2,.8,.2,1) forwards; }
-.hero-photo-img {
+body.ready .hero-roster-panel { animation: rise 0.6s cubic-bezier(.2,.8,.2,1) forwards; }
+
+.hero-roster-photo { position: absolute; top: 0; left: 0; right: 0; height: 40%; overflow: hidden; z-index: 1; }
+.hero-roster-photo-img {
   position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: cover; opacity: 1; transition: opacity 0.9s ease;
+  object-fit: cover; opacity: 1;
+  transition: opacity 0.9s ease, filter 0.5s ease, transform 0.5s ease;
 }
-.hero-photo-img.night { opacity: 0; }
+.hero-roster-photo-img.night { opacity: 0; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .hero-photo-img.day { opacity: 0; }
-  :root:not([data-theme="light"]) .hero-photo-img.night { opacity: 1; }
+  :root:not([data-theme="light"]) .hero-roster-photo-img.day { opacity: 0; }
+  :root:not([data-theme="light"]) .hero-roster-photo-img.night { opacity: 1; }
 }
-:root[data-theme="dark"] .hero-photo-img.day { opacity: 0; }
-:root[data-theme="dark"] .hero-photo-img.night { opacity: 1; }
-.hero-photo-caption {
-  text-align: center; color: var(--text-dim); font-size: 0.8rem;
-  margin: 10px 0 0; letter-spacing: 0.02em;
+:root[data-theme="dark"] .hero-roster-photo-img.day { opacity: 0; }
+:root[data-theme="dark"] .hero-roster-photo-img.night { opacity: 1; }
+.hero-roster-panel.expanded .hero-roster-photo-img { filter: blur(7px) brightness(0.55); transform: scale(1.06); }
+
+.hero-roster-body {
+  position: absolute; left: 0; right: 0; bottom: 0; top: 40%;
+  z-index: 2;
+  display: flex; flex-direction: column;
+  padding: 14px 16px 16px;
+  background: var(--bg-card);
+  transition: top 0.5s cubic-bezier(.4,0,.2,1), background-color 0.5s ease;
+  overflow: hidden;
+}
+/* Sliding the list up to cover the whole panel; its background gets
+   more opaque (frosted-glass over the blurred photo) so the names stay
+   readable rather than just tinting at the normal ~4% card opacity. */
+.hero-roster-panel.expanded .hero-roster-body {
+  top: 0;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+}
+.hero-roster-body .eyebrow { flex: none; }
+
+.hero-roster-pinned.hero-roster-pinned { flex: none; grid-template-columns: 1fr; gap: 2px; margin-top: 10px; }
+.hero-roster-pinned.hero-roster-pinned li,
+.hero-roster-page.hero-roster-page li,
+.hero-roster-full.hero-roster-full li { font-size: 0.82rem; padding: 5px 0; }
+
+.hero-roster-cycle { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; margin-top: 2px; }
+.hero-roster-track { display: flex; height: 100%; transition: transform 0.7s cubic-bezier(.65,0,.35,1); }
+.hero-roster-page.hero-roster-page { flex: 0 0 100%; min-width: 0; grid-template-columns: 1fr; gap: 2px; align-content: flex-start; }
+
+.hero-roster-dots { display: flex; justify-content: center; gap: 5px; margin-top: 6px; flex: none; }
+.hero-roster-dots span { width: 5px; height: 5px; border-radius: 50%; background: var(--border); transition: background 0.3s ease, transform 0.3s ease; }
+.hero-roster-dots span.active { background: var(--accent); transform: scale(1.35); }
+
+.hero-roster-full.hero-roster-full {
+  display: none;
+  flex: 1 1 auto; min-height: 0;
+  grid-template-columns: 1fr; gap: 2px;
+  margin-top: 2px;
+  overflow-y: auto;
+}
+.hero-roster-panel.expanded .hero-roster-cycle,
+.hero-roster-panel.expanded .hero-roster-dots { display: none; }
+.hero-roster-panel.expanded .hero-roster-full.hero-roster-full { display: grid; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-roster-track { transition: none; }
+  .hero-roster-photo-img { transition: opacity 0.9s ease; }
 }
 
 .hero-number-panel {
   position: relative;
-  flex: 0 1 60%; min-width: 0;
+  flex: 0 1 80%; min-width: 0;
   height: clamp(150px, 34vw, 400px);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 4px;
@@ -258,26 +352,32 @@ body.ready .hero-photo-frame { animation: rise 0.6s cubic-bezier(.2,.8,.2,1) for
 }
 body.ready .hero-number-panel { animation: rise 0.6s cubic-bezier(.2,.8,.2,1) forwards; animation-delay: 0.08s; }
 .hero-number-panel .eyebrow { position: relative; z-index: 2; margin-bottom: 0; }
-/* Two energy-burst rings emanating from a small point behind the number:
-   the second ring is the same animation started half a cycle in, so it
-   picks up the expansion right where the first one is fading out —
-   a continuous relay rather than two rings resetting in sync. */
+/* Three energy-burst rings ("beams") emanating from a small point behind
+   the number, each started a third of a cycle after the last so it's a
+   continuous relay rather than resetting in sync. Ring 3 (the real
+   .hero-burst-3 element — ::before/::after only gets you two pseudo-
+   elements) is the biggest of the three, sized via --burst-max so both
+   this default scale and the big-screen override further down can set
+   their own max radius without duplicating the keyframes. */
 .hero-number-panel::before,
-.hero-number-panel::after {
+.hero-number-panel::after,
+.hero-burst-3 {
   content: ""; position: absolute; z-index: 1;
   top: 50%; left: 50%; transform: translate(-50%, -50%);
   width: 8px; height: 8px;
   border-radius: 50%;
-  border: 2px solid var(--accent);
-  box-shadow: 0 0 14px rgba(var(--accent-rgb), 0.45);
+  border: 3px solid var(--accent);
+  box-shadow: 0 0 20px rgba(var(--accent-rgb), 0.5);
   opacity: 0;
   animation: energyBurst 2.6s cubic-bezier(.22,.65,.4,1) infinite;
 }
-.hero-number-panel::after { animation-delay: -1.3s; }
+.hero-number-panel::before { --burst-max: clamp(200px, 46vw, 560px); }
+.hero-number-panel::after  { --burst-max: clamp(200px, 46vw, 560px); animation-delay: -0.867s; }
+.hero-burst-3              { --burst-max: clamp(280px, 64vw, 780px); animation-delay: -1.733s; }
 @keyframes energyBurst {
   0% { width: 8px; height: 8px; opacity: calc(var(--pulse-o, 0.28) + 0.3); }
   18% { opacity: calc(var(--pulse-o, 0.28) + 0.25); }
-  100% { width: clamp(110px, 24vw, 280px); height: clamp(110px, 24vw, 280px); opacity: 0; }
+  100% { width: var(--burst-max); height: var(--burst-max); opacity: 0; }
 }
 .hero-num-big {
   position: relative; z-index: 2;
@@ -285,20 +385,72 @@ body.ready .hero-number-panel { animation: rise 0.6s cubic-bezier(.2,.8,.2,1) fo
 }
 .hero-num-big .num-word {
   font-family: var(--font-display); font-weight: 700;
-  font-size: clamp(0.9rem, 2.2vw, 1.4rem); letter-spacing: 0.08em;
+  font-size: clamp(1rem, 2.6vw, 1.7rem); letter-spacing: 0.1em;
   text-transform: uppercase; color: var(--accent-text);
 }
 .hero-num-big .num-digit {
-  font-family: var(--font-display); font-weight: 800; line-height: 0.85;
-  font-size: clamp(5rem, 15vw, 12rem);
+  font-family: var(--font-display); font-weight: 800; line-height: 0.82;
+  font-size: clamp(6rem, 19vw, 16rem);
   color: var(--accent);
+  -webkit-text-stroke: 2px var(--accent);
+  text-shadow: 0 0 40px rgba(var(--accent-rgb), 0.35);
 }
-.hero-number-panel .hero-leader { position: relative; z-index: 2; margin-top: 0; }
+.hero-number-panel .hero-leader { position: relative; z-index: 2; margin-top: 0; font-size: clamp(1.05rem, 1.7vw, 1.35rem); }
 @media (prefers-reduced-motion: reduce) {
-  .hero-number-panel::before, .hero-number-panel::after { animation: none; opacity: 0; }
+  .hero-number-panel::before, .hero-number-panel::after, .hero-burst-3 { animation: none; opacity: 0; }
 }
-@media (max-width: 480px) {
-  .hero-photo-frame, .hero-number-panel { height: clamp(130px, 42vw, 220px); }
+@media (max-width: 860px) {
+  /* At a 20/80 split the roster panel becomes too narrow to read once
+     it's squeezed side-by-side on a phone/tablet-width screen, so stack
+     the two instead — and put the group number first (that's the thing
+     people check at a glance), team list below it. */
+  .hero-top { flex-direction: column; }
+  .hero-roster-panel, .hero-number-panel { flex: 0 0 auto; width: 100%; }
+  .hero-number-panel { order: 1; height: clamp(190px, 42vw, 280px); }
+  /* Taller than before — the panel now splits internally into a 40%
+     photo strip + 60% list, so it needs enough room for both to read. */
+  .hero-roster-panel { order: 2; height: clamp(230px, 50vw, 340px); }
+}
+
+/* ---------------------------------------------------------------------
+   Big screens: the hero block (team roster + Group number) fills nearly
+   the entire first screen top-to-bottom — everything after it (Status,
+   Countdown, etc.) is pushed below the fold and only appears once the
+   visitor scrolls. It still sits inset with the same left/right/top
+   margins as the topbar above it (not edge-to-edge) — width is 100vw
+   less that inset, using the classic position:relative + left:50% +
+   negative-margin trick to escape main's centered max-width, then
+   padded back in by the topbar's own horizontal gutter so the two line
+   up exactly.
+
+   .hero-top gets its height straight from the viewport (100dvh minus an
+   allowance for the topbar + the gap above the hero) rather than via
+   flex-grow — flex-grow only hands out *leftover* space, and this page
+   always has plenty more content below the hero, so there'd never be
+   any leftover to give it. Its two children fall back to the row's
+   existing `align-items: stretch` (height: auto) to match that height.
+   The group digit is sized off viewport height here (not width), since
+   the panel is now tall rather than wide — so it actually grows to fill
+   the space instead of staying pinned to its compact-layout size.
+   --------------------------------------------------------------------- */
+@media (min-width: 861px) and (min-height: 480px) {
+  .hero-top {
+    min-height: calc(100vh - 126px);
+    min-height: calc(100dvh - 126px);
+    position: relative; left: 50%;
+    width: 100vw; margin-left: -50vw;
+    padding: 0 clamp(16px, 4vw, 48px);
+  }
+  .hero-roster-panel, .hero-number-panel { height: auto; }
+  .hero-roster-body { padding: 24px 22px 26px; }
+  .hero-num-big .num-digit { font-size: clamp(13rem, 58vh, 44rem); }
+  .hero-number-panel .hero-leader { font-size: clamp(1.3rem, 2.6vh, 2rem); }
+  /* vh-based here too (not vw) — the panel is tall, not wide, on big
+     screens, so this is what actually lets the rings reach outward
+     toward its edges instead of staying pinned tight around the digit. */
+  .hero-number-panel::before { --burst-max: clamp(260px, 46vh, 640px); }
+  .hero-number-panel::after  { --burst-max: clamp(260px, 46vh, 640px); }
+  .hero-burst-3               { --burst-max: clamp(380px, 66vh, 920px); }
 }
 
 .hero-grid {
@@ -374,7 +526,7 @@ body.ready .hero-number-panel { animation: rise 0.6s cubic-bezier(.2,.8,.2,1) fo
   font-size: 0.62rem; font-weight: 800; text-transform: uppercase;
   letter-spacing: 0.03em; padding: 2px 7px; border-radius: 999px; flex: none;
 }
-.role-tag.lead { background: var(--accent); color: #08111b; }
+.role-tag.lead { background: var(--accent); color: var(--accent-contrast-text); }
 .role-tag.asst { background: var(--green-soft); color: var(--green-text); }
 .roster-list li:has(.role-tag.lead) span:first-child { font-weight: 800; font-size: 1.05em; }
 
@@ -415,7 +567,7 @@ body.ready .hero-number-panel { animation: rise 0.6s cubic-bezier(.2,.8,.2,1) fo
   display: flex; align-items: center; justify-content: center;
   font-size: 0.75rem; font-weight: 700; transition: all .3s ease;
 }
-.cycle-dot.active { background: var(--accent); color: #08111b; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.18); }
+.cycle-dot.active { background: var(--accent); color: var(--accent-contrast-text); border-color: var(--accent); box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.18); }
 .cycle-dot.next:not(.active) { border-color: var(--green); color: var(--green-text); }
 
 /* ---------------------------------------------------------------------
@@ -485,7 +637,7 @@ body.ready .hero-number-panel { animation: rise 0.6s cubic-bezier(.2,.8,.2,1) fo
 .ribbon {
   position: absolute; top: 14px; right: 14px; z-index: 1;
   font-size: 0.62rem; font-weight: 800; letter-spacing: 0.05em;
-  background: var(--accent); color: #08111b; padding: 3px 9px; border-radius: 999px;
+  background: var(--accent); color: var(--accent-contrast-text); padding: 3px 9px; border-radius: 999px;
 }
 
 /* the number: huge, its own entrance pop, a slow idle breathe on the
@@ -541,7 +693,7 @@ body.ready .hero-number-panel { animation: rise 0.6s cubic-bezier(.2,.8,.2,1) fo
   font-size: 0.8rem; cursor: pointer; transition: all .2s ease;
 }
 .tab:hover { color: var(--text); }
-.tab.active { background: var(--accent); color: #08111b; border-color: var(--accent); font-weight: 700; }
+.tab.active { background: var(--accent); color: var(--accent-contrast-text); border-color: var(--accent); font-weight: 700; }
 
 .history-list { display: flex; flex-direction: column; gap: 8px; }
 .history-row {
@@ -649,7 +801,7 @@ footer { text-align: center; padding: 30px 16px 50px; color: var(--text-dimmer);
   font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all .2s ease;
 }
 .theme-opt:hover { color: var(--text); }
-.theme-opt.active { background: var(--accent); color: #08111b; border-color: var(--accent); }
+.theme-opt.active { background: var(--accent); color: var(--accent-contrast-text); border-color: var(--accent); }
 
 .override-list { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
 .override-list li {
