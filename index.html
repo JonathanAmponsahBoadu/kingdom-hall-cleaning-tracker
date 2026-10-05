@@ -6,14 +6,23 @@
 <title>Kingdom Hall Cleaning Tracker</title>
 <script>
   // Applied before first paint so there's no flash of the wrong theme.
-  // Mirrors app.js's temp-lock-wins-over-permanent-setting logic.
+  // Mirrors app.js's resolvedTheme(): an unexpired 2-hour lock wins, then
+  // the permanent setting (light / dark / device), else Auto = follow the
+  // cleaning schedule (dark Mon-Fri, light Sat-Sun, Ghana = UTC).
+  // data-theme is ALWAYS set, so the CSS never falls back to the OS setting by accident.
   (function () {
+    var theme = "light";
     try {
       var temp = JSON.parse(localStorage.getItem("khct.themeTemp") || "null");
       var validTemp = temp && (temp.choice === "light" || temp.choice === "dark") && temp.expiresAt > Date.now();
-      var t = validTemp ? temp.choice : localStorage.getItem("khct.theme");
-      if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
-    } catch (e) {}
+      var c = validTemp ? temp.choice : localStorage.getItem("khct.theme");
+      if (c === "light" || c === "dark") theme = c;
+      else if (c === "device") theme = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      else { var day = new Date().getUTCDay(); theme = day >= 1 && day <= 5 ? "dark" : "light"; }
+    } catch (e) {
+      var d = new Date().getUTCDay(); theme = d >= 1 && d <= 5 ? "dark" : "light";
+    }
+    document.documentElement.setAttribute("data-theme", theme);
   })();
 </script>
 <meta name="description" content="New Legon Twi Congregation — Field Service Group cleaning rotation, live in Ghana time.">
@@ -161,77 +170,49 @@
     <div class="modal-body">
 
       <div class="settings-block">
-        <h4>Theme</h4>
-        <p class="hint">Auto goes dark Monday 12am–Saturday 12am (the midweek stretch) and light Saturday 12am–Monday 12am (the weekend stretch). Locking one here is permanent — the 🌙/☀️ button up top only locks it for 2 hours before it reverts to this setting.</p>
+        <div class="block-head"><h4>Theme</h4><button type="button" class="info-btn" aria-label="More info" aria-expanded="false">i</button></div>
+        <p class="hint info">Auto goes dark Monday 12am–Saturday 12am (midweek) and light Saturday 12am–Monday 12am (weekend). "Follow device" uses your computer's own light/dark setting. Locking one here is permanent — the 🌙/☀️ button up top only locks it for 2 hours before it reverts to this setting.</p>
         <div class="theme-choice" id="themeChoice">
           <button type="button" class="theme-opt" data-theme-choice="auto">Auto (schedule)</button>
           <button type="button" class="theme-opt" data-theme-choice="light">Light</button>
           <button type="button" class="theme-opt" data-theme-choice="dark">Dark</button>
+          <button type="button" class="theme-opt" data-theme-choice="device">Follow device</button>
         </div>
       </div>
 
       <div class="settings-block">
-        <h4>Midweek Meeting (default)</h4>
-        <p class="hint">The day &amp; time cleaning normally follows for the midweek meeting.</p>
-        <div class="field-row">
-          <label>Day
-            <select id="defaultMidweekDay"></select>
-          </label>
-          <label>Time
-            <input type="time" id="defaultMidweekTime">
-          </label>
-        </div>
-      </div>
-
-      <div class="settings-block">
-        <h4>Weekend Meeting (default)</h4>
-        <div class="field-row">
-          <label>Time
-            <input type="time" id="defaultWeekendTime">
-          </label>
-        </div>
-      </div>
-
-      <div class="settings-block">
-        <h4>One-off Midweek Changes</h4>
-        <p class="hint">For the rare week the midweek meeting moves to a different day or time.</p>
-        <div class="field-row wrap">
-          <label>Week (Sunday)
-            <select id="overrideWeekSelect"></select>
-          </label>
-          <label>New day
-            <select id="overrideDay"></select>
-          </label>
-          <label>New time
-            <input type="time" id="overrideTime">
-          </label>
-          <button type="button" class="btn" id="addOverrideBtn">Add</button>
-        </div>
-        <ul class="override-list" id="overrideList"></ul>
-      </div>
-
-      <div class="settings-block">
-        <h4>Second Screen</h4>
-        <p class="hint">Show the tracker fullscreen on a connected second display (a TV via HDMI, say) — triggered by the Tuesday/Sunday reminder, or on demand below. Needs Chrome or Edge.</p>
+        <div class="block-head"><h4>Second Screen</h4><button type="button" class="info-btn" aria-label="More info" aria-expanded="false">i</button></div>
+        <p class="hint info">Show the tracker fullscreen on a connected second display (a TV via HDMI, say) — triggered by the Tuesday/Sunday reminder, or on demand below. Chrome or Edge can jump straight to the second screen; other browsers will ask you to move the window there and go fullscreen.</p>
         <div class="theme-choice" id="secondScreenToggle">
           <button type="button" class="theme-opt" data-second-screen="on">On</button>
           <button type="button" class="theme-opt" data-second-screen="off">Off</button>
         </div>
-        <p class="hint" style="margin-top:12px;">Show the "Display Now" shortcut in the top bar?</p>
+        <p class="hint" style="margin-top:12px;">Show "Display Now" shortcut</p>
         <div class="theme-choice" id="topButtonToggle">
           <button type="button" class="theme-opt" data-top-button="on">Show</button>
           <button type="button" class="theme-opt" data-top-button="off">Hide</button>
+        </div>
+        <p class="hint" style="margin-top:12px;">Voice announcement</p>
+        <div class="theme-choice" id="voiceToggle">
+          <button type="button" class="theme-opt" data-voice="on">On</button>
+          <button type="button" class="theme-opt" data-voice="off">Off</button>
+        </div>
+        <div class="field-row">
+          <label>Voice
+            <select id="voiceSelect"></select>
+          </label>
         </div>
         <p class="hint" id="secondScreenPermStatus" style="margin-top:12px;">Checking browser support…</p>
         <div class="field-row">
           <button type="button" class="btn" id="secondScreenGrantBtn">Allow Access</button>
           <button type="button" class="btn" id="secondScreenManualBtn">Display Now</button>
+          <button type="button" class="btn" id="voiceTestBtn">Test voice</button>
         </div>
       </div>
 
       <div class="settings-block">
-        <h4>Data</h4>
-        <p class="hint">Any changes above are stored only in this browser.</p>
+        <div class="block-head"><h4>Data</h4><button type="button" class="info-btn" aria-label="More info" aria-expanded="false">i</button></div>
+        <p class="hint info">Theme and display preferences are stored only in this browser.</p>
         <button type="button" class="btn btn-danger" id="resetDataBtn">Reset all local data</button>
       </div>
 
@@ -256,7 +237,7 @@
       <button type="button" class="icon-btn" id="closeSecondScreen" aria-label="Close">✕</button>
     </div>
     <div class="modal-body">
-      <p class="hint" style="margin-bottom:20px;">Is the closing prayer over? Displaying now will take over the second screen.</p>
+      <p class="hint" id="secondScreenPrompt" style="margin-bottom:20px;">Is the closing prayer over? Displaying now will take over the second screen.</p>
       <div class="confirm-actions">
         <button type="button" class="btn" id="secondScreenNo">No</button>
         <button type="button" class="btn btn-accent" id="secondScreenYes">Yes, display</button>

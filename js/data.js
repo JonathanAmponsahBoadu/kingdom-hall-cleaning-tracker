@@ -68,13 +68,13 @@ const GROUP_ASSISTANTS = {
 };
 
 // --- Rotation anchor -------------------------------------------------
-// Every cleaning "block" runs Sunday -> the following Saturday and belongs
-// to exactly one group: that Sunday's weekend cleaning, plus one midweek
-// cleaning inside the same block. The next Sunday starts the next group.
+// A group's duty is a "block" that runs from Saturday 12:00 AM to the next
+// Saturday 12:00 AM: the weekend (Sat + Sun) first, then Mon-Fri midweek.
+// The next Saturday at 12:00 AM starts the next group.
 //
 // Anchor fact (confirmed against the live schedule): the block that starts
-// Sunday 23 Aug 2026 belongs to Group 2.
-const ANCHOR_SUNDAY_UTC = Date.UTC(2026, 7, 23, 0, 0, 0); // Aug is month index 7
+// Saturday 22 Aug 2026 belongs to Group 2.
+const ANCHOR_SATURDAY_UTC = Date.UTC(2026, 7, 22, 0, 0, 0); // Aug is month index 7
 const ANCHOR_GROUP = 2;
 const GROUP_COUNT = 6;
 
@@ -83,14 +83,11 @@ const GROUP_COUNT = 6;
 // library needed for correctness.
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-// Default weekly meeting settings (overridable from the Settings panel).
-const DEFAULT_CONFIG = {
-  midweekDayOffset: 2, // 0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat
-  midweekHour: 18,
-  midweekMinute: 30,
-  weekendDayOffset: 0, // always Sunday
-  weekendHour: 16,
-  weekendMinute: 0
+// Phases inside a block, as day offsets from the block's Saturday start:
+// weekend = Sat + Sun (0 to 2), midweek = Mon-Fri (2 to 7).
+const PHASES = {
+  weekend: { startDay: 0, endDay: 2 },
+  midweek: { startDay: 2, endDay: 7 }
 };
 
 const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -98,9 +95,11 @@ const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 const STORAGE_KEYS = {
-  config: "khct.config.v1",
-  overrides: "khct.overrides.v1",
+  theme: "khct.theme",
+  themeTemp: "khct.themeTemp",
   secondScreenEnabled: "khct.secondScreen.enabled.v1",
   secondScreenShowButton: "khct.secondScreen.showButton.v1",
+  voiceAnnouncement: "khct.voice.enabled.v1",
+  voiceName: "khct.voice.name.v1",
   secondScreenBannerSeen: "khct.secondScreen.bannerSeen.v1"
 };

@@ -14,35 +14,38 @@ this folder as-is, nothing to build.
 
 ## How the rotation is calculated
 
-Each cleaning **block** runs **Sunday → the following Saturday** and belongs
-to exactly one group: that Sunday's **weekend** cleaning, plus one
-**midweek** cleaning inside the same block. The next Sunday starts the next
-group, cycling 1 → 2 → 3 → 4 → 5 → 6 → 1...
+Each group's duty is a **block** that runs from **Saturday 12:00 AM to the
+next Saturday 12:00 AM** (i.e. Friday 11:59 PM is the last minute of the
+block). Inside it the weekend (Sat + Sun) comes first, then Mon–Fri is
+midweek, all by the same group. At the next Saturday 12:00 AM the next
+group takes over, cycling 1 → 2 → 3 → 4 → 5 → 6 → 1...
 
 This is anchored on one known fact (in [js/data.js](js/data.js)):
 
 ```js
-const ANCHOR_SUNDAY_UTC = Date.UTC(2026, 7, 23); // Sun 23 Aug 2026
-const ANCHOR_GROUP = 2;                          // = Group 2
+const ANCHOR_SATURDAY_UTC = Date.UTC(2026, 7, 22); // Sat 22 Aug 2026
+const ANCHOR_GROUP = 2;                            // = Group 2
 ```
 
-Everything else — which group is on duty this week, next week, last month,
-or next year — is computed from that anchor plus today's date. Ghana
+Everything else is computed from that anchor plus today's date. Ghana
 (Africa/Accra) has no daylight saving and sits at UTC+0 year-round, so the
 site reads a `Date`'s **UTC** fields directly as Ghana wall-clock time —
 accurate no matter what timezone the visitor's device is set to.
 
-If the rotation ever gets out of sync with reality (a skipped week, a swap
-between groups), just update `ANCHOR_SUNDAY_UTC` / `ANCHOR_GROUP` to a
-currently-correct Sunday and group.
+If the rotation ever gets out of sync with reality, update
+`ANCHOR_SATURDAY_UTC` / `ANCHOR_GROUP` to a Saturday and the group that
+started on it.
 
-## Midweek meeting day/time changes
+## What the app shows
 
-The default midweek day/time (Tuesday 6:30 PM) and weekend time (Sunday
-4:00 PM) can be changed from the ⚙ **Settings** panel. For the occasional
-one-off week where the meeting moves to a different day, use **One-off
-Midweek Changes** in the same panel instead of touching the default — it
-only affects that specific week.
+No meeting clock times are used. The app shows which group is on duty,
+split into **Weekend** (Sat–Sun) and **Midweek** (Mon–Fri) phases that
+begin at 12:00 AM, and counts down to the next phase. It is read-only.
+(The Sunday 4 PM / Tuesday 6:30 PM reminder times live only in Windows
+Task Scheduler.)
+
+The Auto theme follows the same split: dark Monday–Friday, light Saturday
+and Sunday, switching at Saturday 12:00 AM.
 
 ## Editing the group rosters
 
@@ -51,16 +54,17 @@ Edit the arrays there directly when membership changes.
 
 ## Data storage
 
-Everything you set in Settings (default times, one-off overrides) and any
-cleaning history you mark (Completed/Missed + notes) is saved in your
-browser's `localStorage` only — nothing leaves your device, and it won't
-sync between browsers/devices. "Reset all local data" in Settings clears it.
+Only display preferences (theme, second-screen options) are kept in the
+browser's `localStorage`; nothing leaves your device. "Reset all local
+data" in Settings clears them.
 
 ## Files
 
 ```
-index.html        page structure
+index.html         page structure
 css/style.css      all styling + animations
-js/data.js         groups, congregation name, rotation anchor, defaults
+js/data.js         groups, congregation name, rotation anchor, meeting times
 js/app.js          scheduling math, rendering, interactions
+img/               logos, icons, hall photos
+scripts/           Windows Task Scheduler reminder (see TASK-SCHEDULER-SETUP.md)
 ```

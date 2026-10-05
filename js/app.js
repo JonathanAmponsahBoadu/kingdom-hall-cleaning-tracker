@@ -23,20 +23,6 @@ function writeStore(key, value) {
   }
 }
 
-function getConfig() {
-  return Object.assign({}, DEFAULT_CONFIG, readStore(STORAGE_KEYS.config, {}));
-}
-function saveConfig(partial) {
-  const cfg = Object.assign({}, getConfig(), partial);
-  writeStore(STORAGE_KEYS.config, cfg);
-  return cfg;
-}
-function getOverrides() {
-  return readStore(STORAGE_KEYS.overrides, {});
-}
-function saveOverrides(map) {
-  writeStore(STORAGE_KEYS.overrides, map);
-}
 // ---------------------------------------------------------------------
 // Ghana time + rotation math
 // ---------------------------------------------------------------------
@@ -55,11 +41,12 @@ function startOfUTCDay(ms) {
 }
 function weekIndexForMs(ms) {
   const dayStart = startOfUTCDay(ms);
-  const diffDays = Math.floor((dayStart - ANCHOR_SUNDAY_UTC) / DAY_MS);
+  const diffDays = Math.floor((dayStart - ANCHOR_SATURDAY_UTC) / DAY_MS);
   return Math.floor(diffDays / 7);
 }
-function sundayForWeekIndex(idx) {
-  return ANCHOR_SUNDAY_UTC + idx * 7 * DAY_MS;
+// Saturday 12:00 AM that starts the given block
+function blockStartForIndex(idx) {
+  return ANCHOR_SATURDAY_UTC + idx * 7 * DAY_MS;
 }
 function groupForWeekIndex(idx) {
   const raw = ((ANCHOR_GROUP - 1 + idx) % GROUP_COUNT + GROUP_COUNT) % GROUP_COUNT;
@@ -67,27 +54,15 @@ function groupForWeekIndex(idx) {
 }
 
 function eventsForWeekIndex(idx) {
-  const sunday = sundayForWeekIndex(idx);
+  const start = blockStartForIndex(idx);
   const group = groupForWeekIndex(idx);
-  const sundayISO = isoDate(sunday);
-  const cfg = getConfig();
-  const overrides = getOverrides();
-
-  const weekendMs = sunday + cfg.weekendDayOffset * DAY_MS + cfg.weekendHour * 3600000 + cfg.weekendMinute * 60000;
-
-  let mOffset = cfg.midweekDayOffset, mHour = cfg.midweekHour, mMin = cfg.midweekMinute;
-  const ov = overrides[sundayISO];
-  if (ov) {
-    mOffset = ov.dayOffset;
-    mHour = ov.hour;
-    mMin = ov.minute;
-  }
-  const midweekMs = sunday + mOffset * DAY_MS + mHour * 3600000 + mMin * 60000;
-
-  const events = [
-    { id: sundayISO + "-weekend", type: "weekend", group, datetime: weekendMs, sundayISO, weekIndex: idx, overridden: false },
-    { id: sundayISO + "-midweek", type: "midweek", group, datetime: midweekMs, sundayISO, weekIndex: idx, overridden: !!ov }
-  ];
+  const startISO = isoDate(start);
+  const mk = type => ({
+    id: startISO + "-" + type, type, group, weekIndex: idx,
+    datetime: start + PHASES[type].startDay * DAY_MS,   // phase begins (12:00 AM)
+    endMs: start + PHASES[type].endDay * DAY_MS         // phase ends (12:00 AM)
+  });
+  const events = [mk("weekend"), mk("midweek")];
   events.sort((a, b) => a.datetime - b.datetime);
   return events;
 }
@@ -109,15 +84,6 @@ function formatDateLong(ms) {
 function formatDateShort(ms) {
   const d = new Date(ms);
   return `${WEEKDAY_SHORT[d.getUTCDay()]}, ${d.getUTCDate()} ${MONTH_NAMES[d.getUTCMonth()].slice(0, 3)}`;
-}
-function formatTime(ms) {
-  const d = new Date(ms);
-  let h = d.getUTCHours();
-  const m = String(d.getUTCMinutes()).padStart(2, "0");
-  const ampm = h >= 12 ? "PM" : "AM";
-  h = h % 12;
-  if (h === 0) h = 12;
-  return `${h}:${m} ${ampm}`;
 }
 function pad2(n) {
   return String(Math.max(0, n)).padStart(2, "0");
@@ -284,10 +250,15 @@ function wireHeroRosterExpand() {
   }
 
   let resizeTimer = null;
-  window.addEventListener("resize", () => {
+  const remeasure = () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => renderHeroRosterCycle(currentGroup), 200);
-  });
+  };
+  window.addEventListener("resize", remeasure);
+  // The first render happens before fonts/images settle, so the panel's
+  // height can still change afterwards — measure again once they have.
+  window.addEventListener("load", remeasure);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(remeasure);
 }
 
 let heroNumRenderedFor = null;    // which group the big hero number was last drawn for
@@ -315,26 +286,26 @@ function renderHero() {
   blockEvents.forEach(e => {
     const pillId = e.type === "weekend" ? "weekendPill" : "midweekPill";
     const pill = document.getElementById(pillId);
-    const done = e.datetime <= now;
+    const done = e.endMs <= now;
     pill.classList.toggle("pill-done", done);
     pill.classList.toggle("pill-upcoming", !done);
     pill.innerHTML = `
       <span class="pill-icon">${done ? "✓" : "○"}</span>
       <span class="pill-text">
         <strong>${eventLabel(e)}</strong>
-        <small>${formatDateShort(e.datetime)} · ${formatTime(e.datetime)}${e.overridden ? " · moved" : ""}</small>
+        <small>${formatDateShort(e.datetime)} – ${formatDateShort(e.endMs - DAY_MS)}</small>
       </span>`;
   });
 
   // roster
   document.getElementById("currentRoster").innerHTML = rosterListHTML(currentGroup);
 
-  // week progress (how far through this group's Sun–Sat block we are)
-  const blockStart = sundayForWeekIndex(currentBlockIdx);
+  // week progress (how far through this group's Sat–Sat block we are)
+  const blockStart = blockStartForIndex(currentBlockIdx);
   const pct = Math.min(100, Math.max(0, ((now - blockStart) / (7 * DAY_MS)) * 100));
   document.getElementById("progressFill").style.width = pct + "%";
 
-  const bothDone = blockEvents.every(e => e.datetime <= now);
+  const bothDone = blockEvents.every(e => e.endMs <= now);
   document.getElementById("currentCard").classList.toggle("all-done", bothDone);
   document.getElementById("heroStatusNote").textContent = bothDone
     ? "This group's assignment is complete ✅"
@@ -346,7 +317,7 @@ function renderNextCard() {
   document.getElementById("nextGroupName").textContent = `Group ${nextEvent.group}`;
   document.getElementById("nextGroupType").textContent = eventLabel(nextEvent);
   document.getElementById("nextGroupDate").textContent =
-    `${formatDateLong(nextEvent.datetime)} · ${formatTime(nextEvent.datetime)}`;
+    `Starts ${formatDateLong(nextEvent.datetime)}`;
 
   const dots = document.getElementById("cycleDots");
   dots.innerHTML = "";
@@ -393,7 +364,6 @@ function renderTimeline() {
         <div class="tl-type ${e.type}">${e.type === "weekend" ? "Weekend" : "Midweek"}</div>
         <div class="tl-group">Group ${e.group}</div>
         <div class="tl-date">${formatDateShort(e.datetime)}</div>
-        <div class="tl-time">${formatTime(e.datetime)}${e.overridden ? " · moved" : ""}</div>
         <div class="tl-away">${daysAway <= 0 ? "Today" : daysAway === 1 ? "Tomorrow" : "in " + daysAway + " days"}</div>
       </div>`;
   }).join("");
@@ -437,7 +407,14 @@ function renderGroupGrid() {
         ${GROUP_ASSISTANTS[g] ? `<span class="assistant-name">Asst: ${GROUP_ASSISTANTS[g]}</span>` : ""}
       </div>
       <p class="group-count">${members.length} publishers · tap for full team</p>`;
+    // keyboard access: reachable with Tab, opened with Enter or Space
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-label", `Group ${g} — show full team`);
     card.addEventListener("click", () => openGroupModal(g));
+    card.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openGroupModal(g); }
+    });
     el.appendChild(card);
   }
 
@@ -462,106 +439,28 @@ function openGroupModal(g) {
 // ---------------------------------------------------------------------
 // Settings modal
 // ---------------------------------------------------------------------
-function populateDaySelect(select, includeSunday) {
-  select.innerHTML = "";
-  WEEKDAY_NAMES.forEach((name, idx) => {
-    if (idx === 0 && !includeSunday) return;
-    const opt = document.createElement("option");
-    opt.value = idx;
-    opt.textContent = name;
-    select.appendChild(opt);
-  });
-}
-
 function openSettings() {
-  const cfg = getConfig();
-  populateDaySelect(document.getElementById("defaultMidweekDay"), false);
-  document.getElementById("defaultMidweekDay").value = cfg.midweekDayOffset;
-  document.getElementById("defaultMidweekTime").value = `${pad2(cfg.midweekHour)}:${pad2(cfg.midweekMinute)}`;
-  document.getElementById("defaultWeekendTime").value = `${pad2(cfg.weekendHour)}:${pad2(cfg.weekendMinute)}`;
-
-  populateDaySelect(document.getElementById("overrideDay"), false);
-
-  const weekSelect = document.getElementById("overrideWeekSelect");
-  weekSelect.innerHTML = "";
-  for (let i = 0; i <= 16; i++) {
-    const idx = currentBlockIdx + i;
-    const sunday = sundayForWeekIndex(idx);
-    const opt = document.createElement("option");
-    opt.value = isoDate(sunday);
-    opt.textContent = `${formatDateShort(sunday)} ${new Date(sunday).getUTCFullYear()} — Group ${groupForWeekIndex(idx)}`;
-    weekSelect.appendChild(opt);
-  }
-
-  renderOverrideList();
   showOverlay("settingsOverlay");
 }
 
-function renderOverrideList() {
-  const overrides = getOverrides();
-  const keys = Object.keys(overrides).sort();
-  const el = document.getElementById("overrideList");
-  if (keys.length === 0) {
-    el.innerHTML = `<li class="empty-note">No one-off changes yet.</li>`;
-    return;
-  }
-  el.innerHTML = keys.map(k => {
-    const ov = overrides[k];
-    return `<li>
-      <span>Week of ${k} → <strong>${WEEKDAY_NAMES[ov.dayOffset]}</strong> at ${pad2(ov.hour)}:${pad2(ov.minute)}</span>
-      <button class="icon-btn sm" data-key="${k}" aria-label="Remove override">✕</button>
-    </li>`;
-  }).join("");
-  el.querySelectorAll("button[data-key]").forEach(btn => {
+function wireSettings() {
+  document.querySelectorAll(".info-btn").forEach(btn => {
     btn.addEventListener("click", () => {
-      const map = getOverrides();
-      delete map[btn.dataset.key];
-      saveOverrides(map);
-      renderOverrideList();
-      recomputeSchedule();
-      renderAll();
-      toast("Removed");
+      const block = btn.closest(".settings-block");
+      btn.setAttribute("aria-expanded", String(block.classList.toggle("info-open")));
     });
   });
-}
-
-function wireSettings() {
   document.getElementById("settingsBtn").addEventListener("click", openSettings);
   document.getElementById("closeSettings").addEventListener("click", () => hideOverlay("settingsOverlay"));
 
-  document.getElementById("defaultMidweekDay").addEventListener("change", (e) => {
-    saveConfig({ midweekDayOffset: Number(e.target.value) });
-    recomputeSchedule(); renderAll(); toast("Saved");
-  });
-  document.getElementById("defaultMidweekTime").addEventListener("change", (e) => {
-    const [h, m] = e.target.value.split(":").map(Number);
-    saveConfig({ midweekHour: h, midweekMinute: m });
-    recomputeSchedule(); renderAll(); toast("Saved");
-  });
-  document.getElementById("defaultWeekendTime").addEventListener("change", (e) => {
-    const [h, m] = e.target.value.split(":").map(Number);
-    saveConfig({ weekendHour: h, weekendMinute: m });
-    recomputeSchedule(); renderAll(); toast("Saved");
-  });
-
-  document.getElementById("addOverrideBtn").addEventListener("click", () => {
-    const sundayISO = document.getElementById("overrideWeekSelect").value;
-    const dayOffset = Number(document.getElementById("overrideDay").value);
-    const timeVal = document.getElementById("overrideTime").value;
-    if (!timeVal) { toast("Pick a time first"); return; }
-    const [h, m] = timeVal.split(":").map(Number);
-    const map = getOverrides();
-    map[sundayISO] = { dayOffset, hour: h, minute: m };
-    saveOverrides(map);
-    renderOverrideList();
-    recomputeSchedule();
-    renderAll();
-    toast("One-off change added");
-  });
-
   document.getElementById("resetDataBtn").addEventListener("click", () => {
     if (!confirm("Reset all locally saved settings? This can't be undone.")) return;
-    Object.values(STORAGE_KEYS).forEach(k => localStorage.removeItem(k));
+    Object.values(STORAGE_KEYS).forEach(k => {
+      try { localStorage.removeItem(k); } catch (e) {}
+    });
+    applyThemeNow();
+    updateThemeUI();
+    updateSecondScreenSettingsUI();
     recomputeSchedule();
     renderAll();
     hideOverlay("settingsOverlay");
@@ -620,16 +519,22 @@ function scheduleTheme() {
 // The permanent setting, exactly as chosen in Settings — "auto" unless locked there.
 function permanentThemeChoice() {
   const stored = getStoredThemeChoice();
-  return stored === "light" || stored === "dark" ? stored : "auto";
+  return stored === "light" || stored === "dark" || stored === "device" ? stored : "auto";
 }
 // What's actually in effect right now: an unexpired temporary lock wins, else the permanent setting.
 function themeChoice() {
   const temp = getTempThemeOverride();
   return temp ? temp.choice : permanentThemeChoice();
 }
+// The device's own light/dark setting (only consulted for "Follow device").
+function deviceTheme() {
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
 function resolvedTheme() {
   const choice = themeChoice();
-  return choice === "auto" ? scheduleTheme() : choice;
+  if (choice === "auto") return scheduleTheme();
+  if (choice === "device") return deviceTheme();
+  return choice;
 }
 function applyThemeNow() {
   const resolved = resolvedTheme();
@@ -657,7 +562,9 @@ function updateThemeUI() {
     } else {
       btn.title = permanent === "auto"
         ? `Auto (currently ${resolved} — following the cleaning schedule). Click to lock ${resolved === "dark" ? "light" : "dark"} for 2 hours.`
-        : `Locked to ${permanent} (set in Settings). Click to switch for 2 hours.`;
+        : permanent === "device"
+          ? `Following your device (currently ${resolved}, set in Settings). Click to switch for 2 hours.`
+          : `Locked to ${permanent} (set in Settings). Click to switch for 2 hours.`;
     }
   }
   document.querySelectorAll("#themeChoice .theme-opt").forEach(b => {
@@ -667,7 +574,7 @@ function updateThemeUI() {
 function setTheme(choice) {
   // Settings only — sets the permanent choice and cancels any temporary lock.
   clearTempThemeOverride();
-  setStoredThemeChoice(choice === "auto" ? null : choice);
+  setStoredThemeChoice(choice === "auto" ? null : choice); // Auto = nothing stored (the default)
   applyThemeNow();
   updateThemeUI();
 }
@@ -681,6 +588,15 @@ function wireTheme() {
     b.addEventListener("click", () => setTheme(b.dataset.themeChoice));
   });
   updateThemeUI();
+  // "Follow device" tracks the OS setting live (e.g. the OS flips to dark at sunset).
+  if (window.matchMedia) {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onDeviceChange = () => {
+      if (themeChoice() === "device") { applyThemeNow(); updateThemeUI(); }
+    };
+    if (mq.addEventListener) mq.addEventListener("change", onDeviceChange);
+    else if (mq.addListener) mq.addListener(onDeviceChange);
+  }
 }
 // Applied synchronously as soon as this script runs (before the
 // DOMContentLoaded-driven init/render), so there's minimal flash even
@@ -777,10 +693,89 @@ async function displayOnSecondScreen() {
     return false;
   }
 }
+// Voice announcement once the tracker is up on the second screen:
+// "Cleaning" ... (half a second) ... "Group N". Speech needs the earlier
+// button click to have happened on this page, which it always has here.
+const ANNOUNCE_DELAY_MS = 1000; // wait after the screen goes up
+const ANNOUNCE_GAP_MS = 500;    // pause between "Cleaning" and "Group N"
+let announceTimer = null;
+function cancelAnnouncement() {
+  clearTimeout(announceTimer);
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+}
+// Browsers don't expose a voice's gender, so this guesses it from the
+// voice's name (Windows/Edge/Chrome/Mac voices are named after people).
+const FEMALE_VOICE_HINTS = /female|zira|aria|jenny|hazel|susan|sonia|libby|michelle|samantha|victoria|karen|moira|tessa|fiona|natasha|clara|emma|ava|ana|nova/i;
+const MALE_VOICE_HINTS = /male|david|mark|guy|george|ryan|james|daniel|alex|fred|tom|richard|thomas|eric|brian|christopher|ethan/i;
+function guessVoiceGender(name) {
+  if (FEMALE_VOICE_HINTS.test(name)) return "female";
+  if (MALE_VOICE_HINTS.test(name)) return "male";
+  return "";
+}
+function getEnglishVoices() {
+  if (!("speechSynthesis" in window)) return [];
+  return window.speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang));
+}
+// Fills the Settings dropdown. Voices load asynchronously in most
+// browsers, so this also re-runs on "voiceschanged".
+function populateVoiceSelect() {
+  const sel = document.getElementById("voiceSelect");
+  if (!sel) return;
+  const saved = readStore(STORAGE_KEYS.voiceName, "");
+  sel.innerHTML = "";
+  const def = document.createElement("option");
+  def.value = "";
+  def.textContent = "Default voice";
+  sel.appendChild(def);
+  getEnglishVoices().forEach(v => {
+    const g = guessVoiceGender(v.name);
+    const opt = document.createElement("option");
+    opt.value = v.name;
+    opt.textContent = v.name + (g ? ` (${g})` : "");
+    sel.appendChild(opt);
+  });
+  sel.value = saved;
+  if (sel.value !== saved) sel.value = ""; // saved voice isn't on this device
+}
+function speakPart(text, onEnd) {
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 0.9;
+  const chosen = getEnglishVoices().find(v => v.name === readStore(STORAGE_KEYS.voiceName, ""));
+  if (chosen) { u.voice = chosen; u.lang = chosen.lang; }
+  if (onEnd) u.onend = onEnd;
+  window.speechSynthesis.speak(u);
+}
+function getVoiceEnabled() {
+  return readStore(STORAGE_KEYS.voiceAnnouncement, true);
+}
+function announceCleaningGroup() {
+  if (!getVoiceEnabled()) return;
+  if (!("speechSynthesis" in window)) return;
+  cancelAnnouncement();
+  const group = currentGroup;
+  announceTimer = setTimeout(() => {
+    speakPart("Cleaning", () => {
+      announceTimer = setTimeout(() => speakPart("Group number " + group), ANNOUNCE_GAP_MS);
+    });
+  }, ANNOUNCE_DELAY_MS);
+}
+
+// Chrome/Edge can jump straight to the second screen. Any other browser
+// can't (no Window Management API), so the same prompt instead asks the
+// person to move the window there themselves and then expands it.
+function showSecondScreenPrompt() {
+  const supported = secondScreenSupported();
+  document.getElementById("secondScreenPrompt").textContent = supported
+    ? "Is the closing prayer over? Displaying now will take over the second screen."
+    : "Is the closing prayer over? This browser can't open the second screen by itself — drag this window onto it (on Windows: Win + Shift + → ), then click Done.";
+  document.getElementById("secondScreenYes").textContent = supported ? "Yes, display" : "Done";
+  showOverlay("secondScreenOverlay");
+}
 async function offerSecondScreenConfirm() {
   if (!getSecondScreenEnabled()) return;
+  if (!secondScreenSupported()) { showSecondScreenPrompt(); return; }
   if (!(await hasSecondScreenConnected())) return; // nothing connected — just let the app load normally
-  showOverlay("secondScreenOverlay");
+  showSecondScreenPrompt();
 }
 // The scheduled-notification launch marker — see the top-of-file note above.
 function checkNotificationLaunch() {
@@ -804,11 +799,17 @@ async function updateSecondScreenSettingsUI() {
   // "user pressed Escape to leave it" — this same function gets called
   // from the fullscreenchange listener below, so it comes back on its own).
   const topBtn = document.getElementById("topDisplayBtn");
-  if (topBtn) topBtn.hidden = !(secondScreenSupported() && enabled && showBtn && !document.fullscreenElement);
+  if (topBtn) topBtn.hidden = !(enabled && showBtn && !document.fullscreenElement);
+  const voiceOn = getVoiceEnabled();
+  document.querySelectorAll("#voiceToggle .theme-opt").forEach(b => {
+    b.classList.toggle("active", (b.dataset.voice === "on") === voiceOn);
+  });
   const statusEl = document.getElementById("secondScreenPermStatus");
   if (!statusEl) return;
   if (!secondScreenSupported()) {
-    statusEl.textContent = "Not supported in this browser — use Chrome or Edge.";
+    statusEl.textContent = "This browser can't open the second screen by itself (Chrome or Edge can). You'll be asked to move the window there and go fullscreen.";
+    const grant = document.getElementById("secondScreenGrantBtn");
+    if (grant) grant.hidden = true;
     return;
   }
   if (navigator.permissions && navigator.permissions.query) {
@@ -863,18 +864,36 @@ function wireSecondScreen() {
       updateSecondScreenSettingsUI();
     });
   });
+  document.querySelectorAll("#voiceToggle .theme-opt").forEach(b => {
+    b.addEventListener("click", () => {
+      writeStore(STORAGE_KEYS.voiceAnnouncement, b.dataset.voice === "on");
+      updateSecondScreenSettingsUI();
+    });
+  });
+  populateVoiceSelect();
+  if ("speechSynthesis" in window) window.speechSynthesis.addEventListener("voiceschanged", populateVoiceSelect);
+  document.getElementById("voiceSelect").addEventListener("change", (e) => {
+    writeStore(STORAGE_KEYS.voiceName, e.target.value);
+  });
+  document.getElementById("voiceTestBtn").addEventListener("click", () => {
+    if (!getVoiceEnabled()) { toast("Voice announcement is off"); return; }
+    announceCleaningGroup();
+  });
   // Covers both directions: hides the topbar button the moment a display
   // actually engages, and brings it back the moment it's left — Escape,
   // the second screen's own controls, however it happens to end.
-  document.addEventListener("fullscreenchange", () => updateSecondScreenSettingsUI());
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement) cancelAnnouncement(); // left fullscreen — stop any pending/ongoing voice
+    updateSecondScreenSettingsUI();
+  });
   document.getElementById("secondScreenGrantBtn").addEventListener("click", async () => {
     const details = await getScreenDetailsOrNull();
     toast(details ? "Access allowed" : "Permission not granted");
     updateSecondScreenSettingsUI();
   });
   const manualDisplayTrigger = async () => {
-    if (!(await hasSecondScreenConnected())) { toast("No second screen detected"); return; }
-    showOverlay("secondScreenOverlay");
+    if (secondScreenSupported() && !(await hasSecondScreenConnected())) { toast("No second screen detected"); return; }
+    showSecondScreenPrompt();
   };
   document.getElementById("secondScreenManualBtn").addEventListener("click", manualDisplayTrigger);
   document.getElementById("topDisplayBtn").addEventListener("click", manualDisplayTrigger);
@@ -883,7 +902,16 @@ function wireSecondScreen() {
   document.getElementById("secondScreenNo").addEventListener("click", () => hideOverlay("secondScreenOverlay"));
   document.getElementById("secondScreenYes").addEventListener("click", async () => {
     hideOverlay("secondScreenOverlay");
-    await displayOnSecondScreen();
+    if (!secondScreenSupported()) {
+      // can't target another screen — just expand wherever the window is now
+      try {
+        await document.documentElement.requestFullscreen();
+        announceCleaningGroup();
+      } catch (e) { toast("Press F11 to go fullscreen"); }
+      return;
+    }
+    // only announce when the page really went fullscreen (not the pop-up-window fallback)
+    if (await displayOnSecondScreen() && document.fullscreenElement) announceCleaningGroup();
     updateSecondScreenSettingsUI(); // hides the topbar button immediately; fullscreenchange brings it back on exit
   });
 }
@@ -891,11 +919,29 @@ function wireSecondScreen() {
 // ---------------------------------------------------------------------
 // Wiring + init
 // ---------------------------------------------------------------------
+// The timeline and group cards carry entrance animations, and rebuilding
+// them replays those. renderAll() runs on a timer, so only rebuild them
+// when what they show has actually changed.
+let timelineSig = null;
+let groupGridSig = null;
+
 function renderAll() {
   renderHero();
   renderNextCard();
-  renderTimeline();
-  renderGroupGrid();
+
+  // timeline: the upcoming list changes when an event passes, and its
+  // "in N days" text changes when the day rolls over
+  const tSig = `${startOfUTCDay(nowMs())}|${nextEvent ? nextEvent.id : ""}`;
+  if (tSig !== timelineSig) {
+    renderTimeline();
+    timelineSig = tSig;
+  }
+
+  // group cards: only the "ON DUTY" ribbon depends on the schedule
+  if (currentGroup !== groupGridSig) {
+    renderGroupGrid();
+    groupGridSig = currentGroup;
+  }
 }
 
 function wireMisc() {
@@ -908,6 +954,12 @@ function wireMisc() {
   });
 
   document.getElementById("closeGroupModal").addEventListener("click", () => hideOverlay("groupOverlay"));
+
+  // Escape closes whichever popup is open
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    document.querySelectorAll(".modal-overlay.open").forEach(ov => hideOverlay(ov.id));
+  });
 
   document.querySelectorAll(".modal-overlay").forEach(ov => {
     ov.addEventListener("click", (e) => {

@@ -6,21 +6,12 @@ itself to fire.
 
 ## 0. Host the tracker somewhere with HTTPS
 
-The second-screen feature needs a real `https://` URL — it won't work
-opened from a local file. If you don't already have this hosted, GitHub
-Pages is free and this repo is already on GitHub — ask and I can set
-that up in a couple of minutes.
+Done — this is hosted on Vercel already.
 
 ## 1. Point the script at your URL
 
-Open `scripts/show-cleaning-reminder.ps1` and edit this line near the top:
-
-```powershell
-$TrackerUrl = "https://YOUR-USERNAME.github.io/kingdom-hall-cleaning-tracker/?confirm=1"
-```
-
-Replace it with your actual hosted URL. Keep the `?confirm=1` on the end
-— that's what tells the app to offer the second-screen confirmation.
+Done — `show-cleaning-reminder.ps1` already points at
+`https://kingdom-hall-cleaning-tracker.vercel.app/?confirm=1`.
 
 ## 2. Open Task Scheduler
 
@@ -70,13 +61,14 @@ Nothing in the tracker's own Settings controls this — that's deliberate
 (a website can't reach out and edit Task Scheduler on its own), so this
 is the one place the schedule lives.
 
-## Changing whether it stays on screen until dismissed
+## Changing the browser or how long it stays on screen
 
-By default the notification behaves like a normal Windows notification —
-shows briefly, then moves into the Action Center. To make it instead stay
-visibly on screen until you dismiss it, open `show-cleaning-reminder.ps1`
-and add `scenario="reminder"` to the `<toast ...>` line, e.g.:
+Both are settings near the top of `show-cleaning-reminder.ps1`:
 
-```
-<toast launch="$TrackerUrl" activationType="protocol" scenario="reminder">
-```
+- `$PreferredBrowser` — `"edge"` or `"chrome"` (the other is the fallback).
+- `$ToastStay` — `"short"` (~7 s), `"long"` (~25 s) or `"untilDismissed"`.
+  Windows doesn't allow an exact number of seconds per notification; for
+  that, use Windows Settings > Accessibility > Visual effects > "Dismiss
+  notifications after this amount of time".
+
+Either way the notification then waits in the notifications panel.
